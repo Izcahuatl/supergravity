@@ -4934,3 +4934,10 @@ git commit -m "chore(core): finalize module exports, clippy/fmt clean"
 - `cargo clippy --all-targets -- -D warnings`: clean
 - No Tauri dependency anywhere in `src-tauri/src/core/` (verify: `grep -ri tauri src-tauri/src/core` returns nothing)
 - Follow-up plan (`2026-07-17-supergravity-ui.md`) builds the Tauri bridge + vanilla JS UI on top of this core.
+
+## Hardening follow-ups (post-v1, noted during reviews)
+
+- Shell tool: bounded output capture — `wait_with_output` buffers ALL stdout+stderr in RAM before truncation; cap readers (e.g. `AsyncReadExt::take`) instead of truncating after the fact.
+- Shell tool: process-tree kill on timeout (Windows Job Objects / Unix killpg) — kill_on_drop only kills the direct child.
+- Ollama: tool-result messages could carry `tool_name` to help the model attribute results (needs a name field on `ContentPart::ToolResult`).
+- Truncate shell stdout BEFORE appending `[stderr]`/`[exit code]` markers, so failure diagnostics survive the 50KB cut.
