@@ -1,5 +1,6 @@
 pub mod providers;
 
+pub mod approvals;
 pub mod error;
 pub mod tools;
 pub mod types;
