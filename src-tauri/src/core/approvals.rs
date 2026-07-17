@@ -7,6 +7,10 @@ use tokio::sync::{mpsc, oneshot};
 /// Gates approval-requiring tool calls on the user's decision.
 /// In `Auto` mode every check passes immediately. In `Manual` mode the broker
 /// emits `AgentEvent::ApprovalRequested` and blocks until `resolve` is called.
+///
+/// Lifetime invariant: one broker per agent run. A cancelled run may leave an
+/// unresolved pending entry behind (~100 bytes); the broker is dropped with the
+/// run, so it never accumulates.
 pub struct ApprovalBroker {
     mode: RwLock<ApprovalMode>,
     pending: Mutex<HashMap<String, oneshot::Sender<bool>>>,
@@ -35,15 +39,21 @@ impl ApprovalBroker {
         let request_id = uuid::Uuid::new_v4().to_string();
         let (tx, rx) = oneshot::channel();
         self.pending.lock().unwrap().insert(request_id.clone(), tx);
-        self.events
+        if self
+            .events
             .send(AgentEvent::ApprovalRequested {
-                request_id,
+                request_id: request_id.clone(),
                 tool_call_id: tool_call_id.to_string(),
                 name: name.to_string(),
                 args_json: args_json.to_string(),
             })
             .await
-            .map_err(|_| Error::ApprovalClosed)?;
+            .is_err()
+        {
+            // Receiver gone — don't leak the pending entry.
+            self.pending.lock().unwrap().remove(&request_id);
+            return Err(Error::ApprovalClosed);
+        }
         rx.await.map_err(|_| Error::ApprovalClosed)
     }
 

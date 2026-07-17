@@ -3620,7 +3620,7 @@ git commit -m "feat(core): shell tool with timeout and kill"
 - Create: `src-tauri/src/core/approvals.rs`
 - Modify: `src-tauri/src/core/mod.rs` (add `pub mod approvals;`)
 
-- [ ] **Step 1: Write the failing tests — create `src-tauri/src/core/approvals.rs` containing ONLY**
+- [x] **Step 1: Write the failing tests — create `src-tauri/src/core/approvals.rs` containing ONLY**
 
 ```rust
 #[cfg(test)]
@@ -3696,12 +3696,12 @@ Modify `src-tauri/src/core/mod.rs` — add:
 pub mod approvals;
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd /b/Jetbrains/projects/kimislop/src-tauri && cargo test approvals`
 Expected: compile error — `ApprovalBroker` not found.
 
-- [ ] **Step 3: Implement the broker (prepend to `src-tauri/src/core/approvals.rs`)**
+- [x] **Step 3: Implement the broker (prepend to `src-tauri/src/core/approvals.rs`)**
 
 ```rust
 use crate::core::error::{Error, Result};
@@ -3713,6 +3713,10 @@ use tokio::sync::{mpsc, oneshot};
 /// Gates approval-requiring tool calls on the user's decision.
 /// In `Auto` mode every check passes immediately. In `Manual` mode the broker
 /// emits `AgentEvent::ApprovalRequested` and blocks until `resolve` is called.
+///
+/// Lifetime invariant: one broker per agent run. A cancelled run may leave an
+/// unresolved pending entry behind (~100 bytes); the broker is dropped with the
+/// run, so it never accumulates.
 pub struct ApprovalBroker {
     mode: RwLock<ApprovalMode>,
     pending: Mutex<HashMap<String, oneshot::Sender<bool>>>,
@@ -3741,15 +3745,21 @@ impl ApprovalBroker {
         let request_id = uuid::Uuid::new_v4().to_string();
         let (tx, rx) = oneshot::channel();
         self.pending.lock().unwrap().insert(request_id.clone(), tx);
-        self.events
+        if self
+            .events
             .send(AgentEvent::ApprovalRequested {
-                request_id,
+                request_id: request_id.clone(),
                 tool_call_id: tool_call_id.to_string(),
                 name: name.to_string(),
                 args_json: args_json.to_string(),
             })
             .await
-            .map_err(|_| Error::ApprovalClosed)?;
+            .is_err()
+        {
+            // Receiver gone — don't leak the pending entry.
+            self.pending.lock().unwrap().remove(&request_id);
+            return Err(Error::ApprovalClosed);
+        }
         rx.await.map_err(|_| Error::ApprovalClosed)
     }
 
@@ -3766,12 +3776,12 @@ impl ApprovalBroker {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd /b/Jetbrains/projects/kimislop/src-tauri && cargo test approvals`
 Expected: `test result: ok. 5 passed`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /b/Jetbrains/projects/kimislop
