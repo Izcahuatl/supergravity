@@ -47,7 +47,11 @@ impl Tool for GrepTool {
             .transpose()
             .map_err(|e| Error::Tool(format!("bad glob: {e}")))?;
         let mut out: Vec<String> = Vec::new();
-        for entry in walkdir::WalkDir::new(&base).into_iter().filter_map(|e| e.ok()) {
+        for entry in walkdir::WalkDir::new(&base)
+            .into_iter()
+            .filter_entry(|e| !is_skipped_dir(e))
+            .filter_map(|e| e.ok())
+        {
             if out.len() >= MAX_MATCHES {
                 break;
             }
@@ -67,6 +71,9 @@ impl Tool for GrepTool {
                 Ok(b) => b,
                 Err(_) => continue,
             };
+            if is_binary(&bytes) {
+                continue;
+            }
             let text = String::from_utf8_lossy(&bytes);
             let rel = entry.path().strip_prefix(&ctx.workspace_root).unwrap_or(entry.path());
             let rel = rel.to_string_lossy().replace('\\', "/");
@@ -112,11 +119,22 @@ impl Tool for GlobTool {
 
     async fn execute(&self, ctx: &ToolContext, args_json: &str) -> Result<String> {
         let args: GlobArgs = serde_json::from_str(args_json)?;
+        // glob::glob passes `..` through literally, which would escape the root —
+        // reject absolute patterns and any ParentDir component up front.
+        let pattern_path = std::path::Path::new(&args.pattern);
+        if pattern_path.is_absolute()
+            || pattern_path.components().any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            return Err(Error::Tool(format!("glob pattern escapes workspace: {}", args.pattern)));
+        }
         let full_pattern = ctx.workspace_root.join(&args.pattern);
         let pattern_str = full_pattern.to_string_lossy().replace('\\', "/");
         let paths = glob::glob(&pattern_str).map_err(|e| Error::Tool(format!("bad glob: {e}")))?;
         let mut out: Vec<String> = Vec::new();
         for p in paths.flatten() {
+            if !p.is_file() {
+                continue;
+            }
             if !p.starts_with(&ctx.workspace_root) {
                 continue;
             }
@@ -130,8 +148,30 @@ impl Tool for GlobTool {
         if out.is_empty() {
             return Ok("no matches".into());
         }
+        if out.len() >= MAX_GLOB_RESULTS {
+            out.push(format!("…[capped at {MAX_GLOB_RESULTS} results]"));
+        }
         Ok(out.join("\n"))
     }
+}
+
+/// Directories grep never descends into: hidden dirs (.git, .idea, …) and
+/// build/dependency output that swamps results.
+fn is_skipped_dir(entry: &walkdir::DirEntry) -> bool {
+    // The walk root itself (depth 0) is never skipped — its name may
+    // legitimately start with '.' (tempfile's `.tmpXXX`) or be "target".
+    if entry.depth() == 0 || !entry.file_type().is_dir() {
+        return false;
+    }
+    let name = entry.file_name().to_string_lossy();
+    name.starts_with('.') || name == "target" || name == "node_modules"
+}
+
+/// Binary heuristic: NUL byte in the first 8 KB (same rule git/grep use).
+fn is_binary(bytes: &[u8]) -> bool {
+    const SNIFF: usize = 8192;
+    let head = &bytes[..bytes.len().min(SNIFF)];
+    head.contains(&0)
 }
 
 #[cfg(test)]
@@ -193,5 +233,41 @@ mod tests {
         let (_d, ctx) = ctx();
         let out = GlobTool.execute(&ctx, r#"{"pattern": "**/*.xyz"}"#).await.unwrap();
         assert!(out.contains("no matches"), "{out}");
+    }
+
+    #[tokio::test]
+    async fn grep_skips_hidden_dirs_and_target() {
+        let (dir, ctx) = ctx();
+        std::fs::create_dir_all(dir.path().join(".git")).unwrap();
+        std::fs::write(dir.path().join(".git/config"), "needle-in-git\n").unwrap();
+        std::fs::create_dir_all(dir.path().join("target")).unwrap();
+        std::fs::write(dir.path().join("target/out.txt"), "needle-in-target\n").unwrap();
+        let out = GrepTool.execute(&ctx, r#"{"pattern": "needle"}"#).await.unwrap();
+        assert!(!out.contains(".git"), "{out}");
+        assert!(!out.contains("target"), "{out}");
+        assert!(out.contains("src/main.rs"), "{out}");
+    }
+
+    #[tokio::test]
+    async fn grep_skips_binary_files() {
+        let (dir, ctx) = ctx();
+        std::fs::write(dir.path().join("blob.bin"), b"\x00\x01needle-binary\x02").unwrap();
+        let out = GrepTool.execute(&ctx, r#"{"pattern": "needle"}"#).await.unwrap();
+        assert!(!out.contains("blob.bin"), "{out}");
+    }
+
+    #[tokio::test]
+    async fn glob_rejects_parent_escape() {
+        let (_d, ctx) = ctx();
+        assert!(GlobTool.execute(&ctx, r#"{"pattern": "../../*"}"#).await.is_err());
+        assert!(GlobTool.execute(&ctx, r#"{"pattern": "**/../*"}"#).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn glob_lists_files_not_dirs() {
+        let (_d, ctx) = ctx();
+        let out = GlobTool.execute(&ctx, r#"{"pattern": "**/*"}"#).await.unwrap();
+        assert!(out.contains("src/main.rs"), "{out}");
+        assert!(!out.lines().any(|l| l == "src"), "dirs must not be listed: {out}");
     }
 }
