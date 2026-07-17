@@ -72,8 +72,7 @@ fn main() {
   "version": "0.1.0",
   "identifier": "com.supergravity.app",
   "build": {
-    "frontendDist": "../ui",
-    "devUrl": "../ui"
+    "frontendDist": "../ui"
   },
   "app": {
     "withGlobalTauri": true,
@@ -1890,6 +1889,10 @@ cargo tauri build --no-bundle
 ```
 
 Expected: completes; binary at `src-tauri/target/release/supergravity.exe`. (`--no-bundle` skips the MSI/NSIS installer packaging, which needs extra tooling we don't need for v1.)
+
+- [ ] **Step 2b: Revisit CSP**
+
+Set an explicit CSP in `tauri.conf.json` now that the full UI exists (all assets are local files): replace `"csp": null` with `"csp": "default-src 'self'; style-src 'self' 'unsafe-inline'"` and smoke-test the app once (styling must still work — our CSS is a single local file, but confirm no inline style attributes broke). If anything renders wrong, adjust the policy rather than reverting to `null`.
 
 - [ ] **Step 3: Run the release binary smoke checklist**
 
