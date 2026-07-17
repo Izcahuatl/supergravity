@@ -3429,7 +3429,7 @@ git commit -m "feat(core): grep and glob tools"
 - Create: `src-tauri/src/core/tools/shell.rs`
 - Modify: `src-tauri/src/core/tools/mod.rs` (add `pub mod shell;` and register `shell::RunShellTool` in `default_tools`)
 
-- [ ] **Step 1: Write the failing tests — create `src-tauri/src/core/tools/shell.rs` containing ONLY**
+- [x] **Step 1: Write the failing tests — create `src-tauri/src/core/tools/shell.rs` containing ONLY**
 
 ```rust
 #[cfg(test)]
@@ -3475,7 +3475,7 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Wire the module — modify `src-tauri/src/core/tools/mod.rs`**
+- [x] **Step 2: Wire the module — modify `src-tauri/src/core/tools/mod.rs`**
 
 Add at the top:
 
@@ -3498,12 +3498,12 @@ pub fn default_tools() -> Vec<Box<dyn Tool>> {
 }
 ```
 
-- [ ] **Step 3: Run tests to verify they fail**
+- [x] **Step 3: Run tests to verify they fail**
 
 Run: `cd /b/Jetbrains/projects/kimislop/src-tauri && cargo test shell`
 Expected: compile error — `RunShellTool` not found.
 
-- [ ] **Step 4: Implement the shell tool (prepend to `src-tauri/src/core/tools/shell.rs`)**
+- [x] **Step 4: Implement the shell tool (prepend to `src-tauri/src/core/tools/shell.rs`)**
 
 ```rust
 use crate::core::error::Result;
@@ -3599,12 +3599,12 @@ impl Tool for RunShellTool {
 }
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `cd /b/Jetbrains/projects/kimislop/src-tauri && cargo test shell`
 Expected: `test result: ok. 4 passed`
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /b/Jetbrains/projects/kimislop
