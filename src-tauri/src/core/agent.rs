@@ -91,6 +91,10 @@ pub async fn run(req: AgentRequest) -> Result<Vec<Message>> {
         let ctx = ToolContext { workspace_root: req.workspace_root.clone() };
         let mut results: Vec<ContentPart> = Vec::new();
         for (id, name, args_json) in calls {
+            if req.cancel.is_cancelled() {
+                let _ = req.events.send(AgentEvent::Cancelled).await;
+                return Err(Error::Cancelled);
+            }
             let _ = req
                 .events
                 .send(AgentEvent::ToolCallProposed { id: id.clone(), name: name.clone(), args_json: args_json.clone() })
@@ -111,7 +115,15 @@ pub async fn run(req: AgentRequest) -> Result<Vec<Message>> {
                 }
                 Some(t) => {
                     if t.needs_approval() {
-                        match req.approvals.check(&id, &name, &args_json).await {
+                        // Cancel must interrupt the approval wait, not just iterations.
+                        let decision = tokio::select! {
+                            _ = req.cancel.cancelled() => {
+                                let _ = req.events.send(AgentEvent::Cancelled).await;
+                                return Err(Error::Cancelled);
+                            }
+                            res = req.approvals.check(&id, &name, &args_json) => res,
+                        };
+                        match decision {
                             Ok(true) => {}
                             Ok(false) => {
                                 let _ = req
@@ -377,5 +389,95 @@ mod tests {
             }
         }
         assert!(saw_cancelled);
+    }
+
+    #[tokio::test]
+    async fn multiple_tool_calls_execute_in_order() {
+        let script = vec![
+            vec![
+                Ok(ChatEvent::ToolCall { id: "c1".into(), name: "echo".into(), args_json: "{\"n\":1}".into() }),
+                Ok(ChatEvent::ToolCall { id: "c2".into(), name: "echo".into(), args_json: "{\"n\":2}".into() }),
+                Ok(ChatEvent::Done),
+            ],
+            vec![Ok(ChatEvent::TextDelta("both done".into())), Ok(ChatEvent::Done)],
+        ];
+        let (result, _, _, _) = run_agent(RunArgs { script, mode: ApprovalMode::Auto, tools: vec![Box::new(EchoTool { needs_approval: false })], max_iterations: 5 }).await;
+        let msgs = result.unwrap();
+        assert_eq!(msgs.len(), 3);
+        assert_eq!(
+            msgs[1].parts,
+            vec![
+                ContentPart::ToolResult { tool_call_id: "c1".into(), content: "echoed: {\"n\":1}".into(), is_error: false },
+                ContentPart::ToolResult { tool_call_id: "c2".into(), content: "echoed: {\"n\":2}".into(), is_error: false },
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn manual_approval_allow_executes_tool() {
+        let script = vec![
+            vec![Ok(ChatEvent::ToolCall { id: "c1".into(), name: "echo".into(), args_json: "{}".into() }), Ok(ChatEvent::Done)],
+            vec![Ok(ChatEvent::TextDelta("ok".into())), Ok(ChatEvent::Done)],
+        ];
+        let provider = std::sync::Arc::new(MockProvider::new(script));
+        let (events_tx, mut events_rx) = mpsc::channel(64);
+        let broker = std::sync::Arc::new(ApprovalBroker::new(ApprovalMode::Manual, events_tx.clone()));
+        let dir = tempfile::tempdir().unwrap();
+        let req = AgentRequest {
+            workspace_root: dir.path().to_path_buf(),
+            provider,
+            model: "m".into(),
+            history: vec![Message::text(Role::User, "go")],
+            tools: vec![Box::new(EchoTool { needs_approval: true })],
+            approvals: broker.clone(),
+            events: events_tx,
+            cancel: tokio_util::sync::CancellationToken::new(),
+            max_iterations: 5,
+        };
+        let handle = tokio::spawn(run(req));
+        while let Some(ev) = events_rx.recv().await {
+            if let AgentEvent::ApprovalRequested { request_id, .. } = ev {
+                broker.resolve(&request_id, true).unwrap();
+                break;
+            }
+        }
+        let msgs = handle.await.unwrap().unwrap();
+        assert_eq!(
+            msgs[1].parts,
+            vec![ContentPart::ToolResult { tool_call_id: "c1".into(), content: "echoed: {}".into(), is_error: false }]
+        );
+    }
+
+    #[tokio::test]
+    async fn cancel_during_approval_wait_aborts() {
+        let script = vec![
+            vec![Ok(ChatEvent::ToolCall { id: "c1".into(), name: "echo".into(), args_json: "{}".into() }), Ok(ChatEvent::Done)],
+        ];
+        let provider = std::sync::Arc::new(MockProvider::new(script));
+        let (events_tx, mut events_rx) = mpsc::channel(64);
+        let broker = std::sync::Arc::new(ApprovalBroker::new(ApprovalMode::Manual, events_tx.clone()));
+        let dir = tempfile::tempdir().unwrap();
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let req = AgentRequest {
+            workspace_root: dir.path().to_path_buf(),
+            provider,
+            model: "m".into(),
+            history: vec![Message::text(Role::User, "go")],
+            tools: vec![Box::new(EchoTool { needs_approval: true })],
+            approvals: broker,
+            events: events_tx,
+            cancel: cancel.clone(),
+            max_iterations: 5,
+        };
+        let handle = tokio::spawn(run(req));
+        // when the approval request arrives, cancel instead of resolving
+        while let Some(ev) = events_rx.recv().await {
+            if matches!(ev, AgentEvent::ApprovalRequested { .. }) {
+                cancel.cancel();
+                break;
+            }
+        }
+        let result = handle.await.unwrap();
+        assert!(matches!(result, Err(crate::core::error::Error::Cancelled)));
     }
 }
