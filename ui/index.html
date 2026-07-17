@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>supergravity</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <aside id="sidebar">
+        <button id="new-conversation">+ New Conversation</button>
+        <div id="workspace-list"></div>
+        <div class="sidebar-footer">
+          <button id="open-settings">⚙ Settings</button>
+        </div>
+      </aside>
+      <main id="main">
+        <header id="chat-header">
+          <span id="chat-title">Select or create a conversation</span>
+          <button id="stop-agent" class="hidden">■ Stop</button>
+        </header>
+        <div id="messages"></div>
+        <div id="composer" class="hidden">
+          <textarea id="input" rows="3" placeholder="Ask anything…"></textarea>
+          <div id="composer-bar">
+            <span id="model-slot"></span>
+            <button id="mode-toggle" title="Approval mode: Manual = approve every write/exec">Manual</button>
+            <button id="send">Send</button>
+          </div>
+        </div>
+      </main>
+      <div id="settings" class="hidden">
+        <div id="settings-panel">
+          <header>
+            <h2>Settings</h2>
+            <button id="close-settings">✕</button>
+          </header>
+          <section>
+            <h3>Providers</h3>
+            <p class="dim">OpenAI, Anthropic, Gemini, and Ollama presets were added automatically on first run — edit them below, or add any OpenAI-compatible endpoint as custom.</p>
+            <div id="provider-list"></div>
+            <h4>Add custom provider (OpenAI-compatible)</h4>
+            <form id="custom-provider-form">
+              <input id="cp-label" placeholder="Label (e.g. Groq)" required />
+              <input id="cp-base-url" placeholder="Base URL (e.g. https://api.groq.com/openai/v1)" required />
+              <input id="cp-models" placeholder="Models, comma-separated (e.g. llama-3.3-70b-versatile)" required />
+              <input id="cp-key" placeholder="API key (stored in OS keychain)" type="password" />
+              <button type="submit">Add custom provider</button>
+            </form>
+          </section>
+          <section>
+            <h3>Add workspace</h3>
+            <form id="workspace-form">
+              <input id="ws-name" placeholder="Name (e.g. my-project)" required />
+              <input id="ws-path" placeholder="Absolute path (e.g. C:\dev\my-project)" required />
+              <button type="submit">Add workspace</button>
+            </form>
+          </section>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
