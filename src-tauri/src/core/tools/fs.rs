@@ -43,10 +43,13 @@ impl Tool for ReadFileTool {
             .map_err(|e| Error::Tool(format!("cannot read {}: {e}", path.display())))?;
         let text = String::from_utf8_lossy(&bytes);
         let offset = args.offset.unwrap_or(1).max(1);
-        let limit = args.limit.unwrap_or(DEFAULT_LINE_LIMIT);
+        let limit = args.limit.unwrap_or(DEFAULT_LINE_LIMIT).max(1);
         let lines: Vec<&str> = text.lines().collect();
         let total = lines.len();
         let slice: Vec<&str> = lines.iter().skip(offset - 1).take(limit).copied().collect();
+        if slice.is_empty() && offset > total {
+            return Ok(format!("[offset {offset} past end of file: {total} lines]"));
+        }
         let mut out = slice.join("\n");
         let shown_up_to = offset - 1 + slice.len();
         if shown_up_to < total {
@@ -94,6 +97,9 @@ impl Tool for WriteFileTool {
         let args: WriteFileArgs = serde_json::from_str(args_json)?;
         let path = resolve_in_workspace(&ctx.workspace_root, &args.path)?;
         let mode = args.mode.as_deref().unwrap_or("overwrite");
+        if !matches!(mode, "create" | "overwrite" | "append") {
+            return Err(Error::Tool(format!("unknown write mode: {mode}")));
+        }
         if mode == "create" && path.exists() {
             return Err(Error::Tool(format!("file already exists: {}", path.display())));
         }
@@ -107,7 +113,7 @@ impl Tool for WriteFileTool {
                 let mut f = std::fs::OpenOptions::new().create(true).append(true).open(&path)?;
                 f.write_all(args.content.as_bytes())?;
             }
-            other => return Err(Error::Tool(format!("unknown write mode: {other}"))),
+            _ => unreachable!(),
         }
         Ok(format!("wrote {} bytes to {}", args.content.len(), path.display()))
     }
@@ -140,6 +146,9 @@ impl Tool for ListDirTool {
     async fn execute(&self, ctx: &ToolContext, args_json: &str) -> Result<String> {
         let args: ListDirArgs = serde_json::from_str(args_json)?;
         let base = resolve_in_workspace(&ctx.workspace_root, args.path.as_deref().unwrap_or("."))?;
+        if !base.is_dir() {
+            return Err(Error::Tool(format!("not a directory: {}", base.display())));
+        }
         let depth = args.depth.unwrap_or(1);
         let mut out = Vec::new();
         list_recursive(&base, depth, 0, &mut out);
@@ -251,5 +260,25 @@ mod tests {
         assert!(out.contains("top.txt"), "{out}");
         let shallow = ListDirTool.execute(&ctx, r#"{"path": ".", "depth": 1}"#).await.unwrap();
         assert!(!shallow.contains("a.txt"), "{shallow}");
+    }
+
+    #[tokio::test]
+    async fn read_file_offset_past_eof() {
+        let (_d, ctx) = ctx();
+        let out = ReadFileTool.execute(&ctx, r#"{"path": "src/a.txt", "offset": 99}"#).await.unwrap();
+        assert!(out.contains("past end of file"), "{out}");
+    }
+
+    #[tokio::test]
+    async fn write_file_unknown_mode_has_no_side_effects() {
+        let (_d, ctx) = ctx();
+        assert!(WriteFileTool.execute(&ctx, r#"{"path": "new2/b.txt", "content": "x", "mode": "bogus"}"#).await.is_err());
+        assert!(!ctx.workspace_root.join("new2").exists(), "no dirs created on invalid mode");
+    }
+
+    #[tokio::test]
+    async fn list_dir_on_file_is_error() {
+        let (_d, ctx) = ctx();
+        assert!(ListDirTool.execute(&ctx, r#"{"path": "top.txt"}"#).await.is_err());
     }
 }

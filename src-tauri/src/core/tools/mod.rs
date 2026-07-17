@@ -4,6 +4,8 @@ use std::path::{Component, Path, PathBuf};
 
 /// Shared execution context for tools.
 pub struct ToolContext {
+    /// MUST be an absolute path; a relative/empty root is rejected by
+    /// `resolve_in_workspace` (it would otherwise match every path).
     pub workspace_root: PathBuf,
 }
 
@@ -59,6 +61,10 @@ fn normalize(path: &Path) -> PathBuf {
 /// check; symlinks inside the workspace pointing outside are not resolved.
 pub fn resolve_in_workspace(root: &Path, p: &str) -> Result<PathBuf> {
     let root_n = normalize(root);
+    if root_n.as_os_str().is_empty() {
+        // An empty normalized root (from "" or ".") would starts_with EVERY path.
+        return Err(Error::Tool("workspace root must be an absolute path".into()));
+    }
     let candidate = Path::new(p);
     let resolved = if candidate.is_absolute() {
         normalize(candidate)
@@ -104,6 +110,12 @@ mod tests {
         let root = if cfg!(windows) { Path::new("C:\\ws") } else { Path::new("/ws") };
         let evil = if cfg!(windows) { "D:\\other\\x" } else { "/etc/passwd" };
         assert!(resolve_in_workspace(root, evil).is_err());
+    }
+
+    #[test]
+    fn sandbox_rejects_relative_or_empty_root() {
+        assert!(resolve_in_workspace(Path::new("."), "anything").is_err());
+        assert!(resolve_in_workspace(Path::new(""), "anything").is_err());
     }
 
     #[test]
