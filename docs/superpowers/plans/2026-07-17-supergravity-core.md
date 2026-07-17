@@ -2597,7 +2597,7 @@ git commit -m "feat(core): Ollama provider and provider factory"
 - Create: `src-tauri/src/core/tools/fs.rs`
 - Modify: `src-tauri/src/core/mod.rs` (add `pub mod tools;`)
 
-- [ ] **Step 1: Write the failing tests — create `src-tauri/src/core/tools/mod.rs` containing ONLY**
+- [x] **Step 1: Write the failing tests — create `src-tauri/src/core/tools/mod.rs` containing ONLY**
 
 ```rust
 pub mod fs;
@@ -2607,22 +2607,35 @@ mod tests {
     use super::*;
     use std::path::{Path, PathBuf};
 
+    /// Test root that is absolute on both Windows and Unix.
+    fn abs_root() -> &'static Path {
+        if cfg!(windows) {
+            Path::new("C:\\ws")
+        } else {
+            Path::new("/ws")
+        }
+    }
+
+    fn abs(path: &str) -> PathBuf {
+        abs_root().join(path.replace('/', std::path::MAIN_SEPARATOR_STR))
+    }
+
     #[test]
     fn sandbox_accepts_relative_paths() {
-        let root = Path::new("/ws");
-        assert_eq!(resolve_in_workspace(root, "src/main.rs").unwrap(), PathBuf::from("/ws/src/main.rs"));
-        assert_eq!(resolve_in_workspace(root, ".").unwrap(), PathBuf::from("/ws"));
+        let root = abs_root();
+        assert_eq!(resolve_in_workspace(root, "src/main.rs").unwrap(), abs("src/main.rs"));
+        assert_eq!(resolve_in_workspace(root, ".").unwrap(), abs_root());
     }
 
     #[test]
     fn sandbox_normalizes_dot_segments() {
-        let root = Path::new("/ws");
-        assert_eq!(resolve_in_workspace(root, "a/../b").unwrap(), PathBuf::from("/ws/b"));
+        let root = abs_root();
+        assert_eq!(resolve_in_workspace(root, "a/../b").unwrap(), abs("b"));
     }
 
     #[test]
     fn sandbox_rejects_parent_escape() {
-        let root = Path::new("/ws");
+        let root = abs_root();
         assert!(resolve_in_workspace(root, "../outside").is_err());
         assert!(resolve_in_workspace(root, "a/../../outside").is_err());
     }
@@ -2632,6 +2645,12 @@ mod tests {
         let root = if cfg!(windows) { Path::new("C:\\ws") } else { Path::new("/ws") };
         let evil = if cfg!(windows) { "D:\\other\\x" } else { "/etc/passwd" };
         assert!(resolve_in_workspace(root, evil).is_err());
+    }
+
+    #[test]
+    fn sandbox_rejects_relative_or_empty_root() {
+        assert!(resolve_in_workspace(Path::new("."), "anything").is_err());
+        assert!(resolve_in_workspace(Path::new(""), "anything").is_err());
     }
 
     #[test]
@@ -2655,12 +2674,12 @@ Modify `src-tauri/src/core/mod.rs` — add:
 pub mod tools;
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd /b/Jetbrains/projects/kimislop/src-tauri && cargo test tools`
 Expected: compile errors — `resolve_in_workspace`, `truncate_output` not found. (Note: `tools/fs.rs` does not exist yet; create it as an empty file `pub` so `pub mod fs;` compiles — an empty file is fine.)
 
-- [ ] **Step 3: Implement the sandbox and trait (prepend to `src-tauri/src/core/tools/mod.rs`)**
+- [x] **Step 3: Implement the sandbox and trait (prepend to `src-tauri/src/core/tools/mod.rs`)**
 
 ```rust
 use crate::core::error::{Error, Result};
@@ -2669,6 +2688,8 @@ use std::path::{Component, Path, PathBuf};
 
 /// Shared execution context for tools.
 pub struct ToolContext {
+    /// MUST be an absolute path; a relative/empty root is rejected by
+    /// `resolve_in_workspace` (it would otherwise match every path).
     pub workspace_root: PathBuf,
 }
 
@@ -2683,13 +2704,10 @@ pub trait Tool: Send + Sync {
     async fn execute(&self, ctx: &ToolContext, args_json: &str) -> Result<String>;
 }
 
-/// The v1 tool set given to every agent run.
+/// The v1 tool set given to every agent run. fs/search/shell tools are
+/// registered here as their modules land (this task adds fs below in Step 7b).
 pub fn default_tools() -> Vec<Box<dyn Tool>> {
-    vec![
-        Box::new(fs::ReadFileTool),
-        Box::new(fs::WriteFileTool),
-        Box::new(fs::ListDirTool),
-    ]
+    vec![]
 }
 
 /// Truncate tool output to `max_bytes` (on a char boundary), noting the cut.
@@ -2723,6 +2741,11 @@ fn normalize(path: &Path) -> PathBuf {
 /// (`..` traversal or absolute paths outside it). Note: this is a lexical
 /// check; symlinks inside the workspace pointing outside are not resolved.
 pub fn resolve_in_workspace(root: &Path, p: &str) -> Result<PathBuf> {
+    if !root.is_absolute() {
+        // A relative root would anchor the sandbox to an unpredictable CWD, and
+        // an empty one would starts_with EVERY path — both must be rejected.
+        return Err(Error::Tool("workspace root must be an absolute path".into()));
+    }
     let root_n = normalize(root);
     let candidate = Path::new(p);
     let resolved = if candidate.is_absolute() {
@@ -2740,12 +2763,12 @@ pub fn resolve_in_workspace(root: &Path, p: &str) -> Result<PathBuf> {
 
 (Create `src-tauri/src/core/tools/fs.rs` as an empty file in this step so the module compiles.)
 
-- [ ] **Step 4: Run sandbox tests to verify they pass**
+- [x] **Step 4: Run sandbox tests to verify they pass**
 
 Run: `cd /b/Jetbrains/projects/kimislop/src-tauri && cargo test tools::tests`
 Expected: `test result: ok. 6 passed`
 
-- [ ] **Step 5: Write the failing fs tool tests — set `src-tauri/src/core/tools/fs.rs` to contain ONLY**
+- [x] **Step 5: Write the failing fs tool tests — set `src-tauri/src/core/tools/fs.rs` to contain ONLY**
 
 ```rust
 #[cfg(test)]
@@ -2827,15 +2850,35 @@ mod tests {
         let shallow = ListDirTool.execute(&ctx, r#"{"path": ".", "depth": 1}"#).await.unwrap();
         assert!(!shallow.contains("a.txt"), "{shallow}");
     }
+
+    #[tokio::test]
+    async fn read_file_offset_past_eof() {
+        let (_d, ctx) = ctx();
+        let out = ReadFileTool.execute(&ctx, r#"{"path": "src/a.txt", "offset": 99}"#).await.unwrap();
+        assert!(out.contains("past end of file"), "{out}");
+    }
+
+    #[tokio::test]
+    async fn write_file_unknown_mode_has_no_side_effects() {
+        let (_d, ctx) = ctx();
+        assert!(WriteFileTool.execute(&ctx, r#"{"path": "new2/b.txt", "content": "x", "mode": "bogus"}"#).await.is_err());
+        assert!(!ctx.workspace_root.join("new2").exists(), "no dirs created on invalid mode");
+    }
+
+    #[tokio::test]
+    async fn list_dir_on_file_is_error() {
+        let (_d, ctx) = ctx();
+        assert!(ListDirTool.execute(&ctx, r#"{"path": "top.txt"}"#).await.is_err());
+    }
 }
 ```
 
-- [ ] **Step 6: Run fs tests to verify they fail**
+- [x] **Step 6: Run fs tests to verify they fail**
 
 Run: `cd /b/Jetbrains/projects/kimislop/src-tauri && cargo test tools::fs`
 Expected: compile errors — `ReadFileTool` etc. not found.
 
-- [ ] **Step 7: Implement the fs tools (prepend to `src-tauri/src/core/tools/fs.rs`)**
+- [x] **Step 7: Implement the fs tools (prepend to `src-tauri/src/core/tools/fs.rs`)**
 
 ```rust
 use crate::core::error::{Error, Result};
@@ -2883,14 +2926,20 @@ impl Tool for ReadFileTool {
             .map_err(|e| Error::Tool(format!("cannot read {}: {e}", path.display())))?;
         let text = String::from_utf8_lossy(&bytes);
         let offset = args.offset.unwrap_or(1).max(1);
-        let limit = args.limit.unwrap_or(DEFAULT_LINE_LIMIT);
+        let limit = args.limit.unwrap_or(DEFAULT_LINE_LIMIT).max(1);
         let lines: Vec<&str> = text.lines().collect();
         let total = lines.len();
         let slice: Vec<&str> = lines.iter().skip(offset - 1).take(limit).copied().collect();
+        if slice.is_empty() && offset > total {
+            return Ok(format!("[offset {offset} past end of file: {total} lines]"));
+        }
         let mut out = slice.join("\n");
         let shown_up_to = offset - 1 + slice.len();
         if shown_up_to < total {
             out.push_str(&format!("\n…[{} more lines]", total - shown_up_to));
+        } else if !slice.is_empty() && text.ends_with('\n') {
+            // The slice reached EOF; preserve the file's trailing newline.
+            out.push('\n');
         }
         Ok(truncate_output(&out, MAX_OUTPUT))
     }
@@ -2931,6 +2980,9 @@ impl Tool for WriteFileTool {
         let args: WriteFileArgs = serde_json::from_str(args_json)?;
         let path = resolve_in_workspace(&ctx.workspace_root, &args.path)?;
         let mode = args.mode.as_deref().unwrap_or("overwrite");
+        if !matches!(mode, "create" | "overwrite" | "append") {
+            return Err(Error::Tool(format!("unknown write mode: {mode}")));
+        }
         if mode == "create" && path.exists() {
             return Err(Error::Tool(format!("file already exists: {}", path.display())));
         }
@@ -2944,7 +2996,7 @@ impl Tool for WriteFileTool {
                 let mut f = std::fs::OpenOptions::new().create(true).append(true).open(&path)?;
                 f.write_all(args.content.as_bytes())?;
             }
-            other => return Err(Error::Tool(format!("unknown write mode: {other}"))),
+            _ => unreachable!(),
         }
         Ok(format!("wrote {} bytes to {}", args.content.len(), path.display()))
     }
@@ -2977,6 +3029,9 @@ impl Tool for ListDirTool {
     async fn execute(&self, ctx: &ToolContext, args_json: &str) -> Result<String> {
         let args: ListDirArgs = serde_json::from_str(args_json)?;
         let base = resolve_in_workspace(&ctx.workspace_root, args.path.as_deref().unwrap_or("."))?;
+        if !base.is_dir() {
+            return Err(Error::Tool(format!("not a directory: {}", base.display())));
+        }
         let depth = args.depth.unwrap_or(1);
         let mut out = Vec::new();
         list_recursive(&base, depth, 0, &mut out);
@@ -3011,12 +3066,25 @@ fn list_recursive(dir: &std::path::Path, depth: usize, level: usize, out: &mut V
 }
 ```
 
-- [ ] **Step 8: Run tests to verify they pass**
+- [x] **Step 7b: Register the fs tools in `default_tools` — in `src-tauri/src/core/tools/mod.rs`, replace the placeholder with**
+
+```rust
+/// The v1 tool set given to every agent run.
+pub fn default_tools() -> Vec<Box<dyn Tool>> {
+    vec![
+        Box::new(fs::ReadFileTool),
+        Box::new(fs::WriteFileTool),
+        Box::new(fs::ListDirTool),
+    ]
+}
+```
+
+- [x] **Step 8: Run tests to verify they pass**
 
 Run: `cd /b/Jetbrains/projects/kimislop/src-tauri && cargo test tools`
 Expected: `test result: ok. 14 passed`
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 cd /b/Jetbrains/projects/kimislop

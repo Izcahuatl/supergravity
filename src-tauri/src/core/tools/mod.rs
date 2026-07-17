@@ -60,11 +60,12 @@ fn normalize(path: &Path) -> PathBuf {
 /// (`..` traversal or absolute paths outside it). Note: this is a lexical
 /// check; symlinks inside the workspace pointing outside are not resolved.
 pub fn resolve_in_workspace(root: &Path, p: &str) -> Result<PathBuf> {
-    let root_n = normalize(root);
-    if root_n.as_os_str().is_empty() {
-        // An empty normalized root (from "" or ".") would starts_with EVERY path.
+    if !root.is_absolute() {
+        // A relative root would anchor the sandbox to an unpredictable CWD, and
+        // an empty one would starts_with EVERY path — both must be rejected.
         return Err(Error::Tool("workspace root must be an absolute path".into()));
     }
+    let root_n = normalize(root);
     let candidate = Path::new(p);
     let resolved = if candidate.is_absolute() {
         normalize(candidate)
@@ -85,22 +86,35 @@ mod tests {
     use super::*;
     use std::path::{Path, PathBuf};
 
+    /// Test root that is absolute on both Windows and Unix.
+    fn abs_root() -> &'static Path {
+        if cfg!(windows) {
+            Path::new("C:\\ws")
+        } else {
+            Path::new("/ws")
+        }
+    }
+
+    fn abs(path: &str) -> PathBuf {
+        abs_root().join(path.replace('/', std::path::MAIN_SEPARATOR_STR))
+    }
+
     #[test]
     fn sandbox_accepts_relative_paths() {
-        let root = Path::new("/ws");
-        assert_eq!(resolve_in_workspace(root, "src/main.rs").unwrap(), PathBuf::from("/ws/src/main.rs"));
-        assert_eq!(resolve_in_workspace(root, ".").unwrap(), PathBuf::from("/ws"));
+        let root = abs_root();
+        assert_eq!(resolve_in_workspace(root, "src/main.rs").unwrap(), abs("src/main.rs"));
+        assert_eq!(resolve_in_workspace(root, ".").unwrap(), abs_root());
     }
 
     #[test]
     fn sandbox_normalizes_dot_segments() {
-        let root = Path::new("/ws");
-        assert_eq!(resolve_in_workspace(root, "a/../b").unwrap(), PathBuf::from("/ws/b"));
+        let root = abs_root();
+        assert_eq!(resolve_in_workspace(root, "a/../b").unwrap(), abs("b"));
     }
 
     #[test]
     fn sandbox_rejects_parent_escape() {
-        let root = Path::new("/ws");
+        let root = abs_root();
         assert!(resolve_in_workspace(root, "../outside").is_err());
         assert!(resolve_in_workspace(root, "a/../../outside").is_err());
     }
@@ -116,6 +130,7 @@ mod tests {
     fn sandbox_rejects_relative_or_empty_root() {
         assert!(resolve_in_workspace(Path::new("."), "anything").is_err());
         assert!(resolve_in_workspace(Path::new(""), "anything").is_err());
+        assert!(resolve_in_workspace(Path::new("ws"), "anything").is_err());
     }
 
     #[test]
