@@ -1,4 +1,4 @@
-use crate::core::error::Result;
+use crate::core::error::{Error, Result};
 use crate::core::types::ToolSpec;
 use serde::Deserialize;
 use serde_json::json;
@@ -58,8 +58,12 @@ impl Tool for RunShellTool {
             .current_dir(&ctx.workspace_root)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
+            // NOTE: kill_on_drop kills the direct child only — on timeout,
+            // grandchildren (e.g. ping, build subprocesses) keep running.
+            // Process-tree kill (Job Objects / killpg) is a hardening follow-up.
             .kill_on_drop(true)
-            .spawn()?;
+            .spawn()
+            .map_err(|e| Error::Tool(format!("cannot spawn in workspace root {}: {e}", ctx.workspace_root.display())))?;
 
         match tokio::time::timeout(timeout, child.wait_with_output()).await {
             Ok(Ok(output)) => {
