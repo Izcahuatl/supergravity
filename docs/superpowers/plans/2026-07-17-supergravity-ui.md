@@ -367,7 +367,9 @@ git commit -m "feat: tauri v2 scaffold with ui placeholder"
 
 ```rust
 use crate::core::approvals::ApprovalBroker;
-use crate::core::config::{AppConfig, KeyStore, MemKeyStore, OsKeyStore};
+use crate::core::config::{AppConfig, KeyStore, OsKeyStore};
+#[cfg(test)]
+use crate::core::config::MemKeyStore;
 use crate::core::store::Store;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -715,11 +717,13 @@ pub async fn set_ui_state_impl(
 }
 ```
 
-Then the Tauri command wrappers — append to the same file (outside tests). Write each wrapper explicitly (Tauri commands have varying return types — no macro):
+Then the Tauri command wrappers — append to the same file (outside tests). Write each wrapper explicitly (Tauri commands have varying return types — no macro).
+
+**Compile note (implementation-aligned):** `commands.rs` imports `core::error::Result` (a 1-parameter alias) for the `*_impl` fns, so the wrappers' return types must be written fully-qualified as `std::result::Result<T, String>` — unqualified `Result<T, String>` does not compile here.
 
 ```rust
 #[tauri::command]
-pub async fn list_workspaces(state: tauri::State<'_, AppState>) -> Result<Vec<WorkspaceRow>, String> {
+pub async fn list_workspaces(state: tauri::State<'_, AppState>) -> std::result::Result<Vec<WorkspaceRow>, String> {
     list_workspaces_impl(&state).await.map_err(estr)
 }
 
@@ -832,6 +836,7 @@ pub mod state;
 
 use crate::core::config::{data_dir, AppConfig};
 use crate::core::store::Store;
+use tauri::Manager;
 
 pub fn run() {
     let dir = data_dir().expect("cannot determine app data dir");
