@@ -573,7 +573,7 @@ git commit -m "feat(core): incremental SSE and line decoders"
 - Create: `src-tauri/src/core/providers/mock.rs`
 - Modify: `src-tauri/src/core/providers/mod.rs`
 
-- [ ] **Step 1: Write the failing tests — create `src-tauri/src/core/providers/mock.rs` containing ONLY**
+- [x] **Step 1: Write the failing tests — create `src-tauri/src/core/providers/mock.rs` containing ONLY**
 
 ```rust
 #[cfg(test)]
@@ -632,7 +632,7 @@ mod tests {
     async fn mock_exhausted_script_errors() {
         let p = MockProvider::new(vec![]);
         let msgs = vec![Message::text(Role::User, "hi")];
-        let err = p.stream_chat("m", &msgs, &[]).await.unwrap_err();
+        let err = p.stream_chat("m", &msgs, &[]).await.err().unwrap();
         assert!(err.to_string().contains("mock script exhausted"), "{err}");
     }
 }
@@ -703,12 +703,12 @@ pub trait Provider: Send + Sync {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd /b/Jetbrains/projects/kimislop/src-tauri && cargo test mock`
 Expected: compile error — `MockProvider` not found.
 
-- [ ] **Step 3: Implement `src-tauri/src/core/providers/http.rs` (prepend above the test module)**
+- [x] **Step 3: Implement `src-tauri/src/core/providers/http.rs` (prepend above the test module)**
 
 ```rust
 use crate::core::error::{Error, Result};
@@ -764,11 +764,17 @@ impl Utf8Buf {
 
 /// POST a request and return the response body as a stream of text chunks.
 /// Non-2xx responses become [`Error::Provider`] with a truncated body.
-/// Per-request timeout: 120 s.
+/// Timeouts: 30 s to connect/receive headers, 120 s idle between chunks —
+/// a long-but-alive LLM stream must NOT be killed by a total request timeout.
 pub async fn post_stream(
     req: reqwest::RequestBuilder,
 ) -> Result<impl Stream<Item = Result<String>> + Send> {
-    let resp = req.timeout(std::time::Duration::from_secs(120)).send().await?;
+    const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+    const CHUNK_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
+    let resp = tokio::time::timeout(CONNECT_TIMEOUT, req.send())
+        .await
+        .map_err(|_| Error::Provider { status: 0, body: "connect timeout (30s)".into() })??;
     let status = resp.status();
     if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
@@ -779,10 +785,18 @@ pub async fn post_stream(
     let stream = async_stream::try_stream! {
         let mut utf8 = Utf8Buf::new();
         tokio::pin!(bytes);
-        while let Some(chunk) = bytes.next().await {
-            let chunk = chunk?;
-            if let Some(text) = utf8.push(&chunk) {
-                yield text;
+        loop {
+            match tokio::time::timeout(CHUNK_IDLE_TIMEOUT, bytes.next()).await {
+                Err(_) => {
+                    Err(Error::Provider { status: 0, body: "stream idle timeout (120s)".into() })?;
+                }
+                Ok(Some(chunk)) => {
+                    let chunk = chunk?;
+                    if let Some(text) = utf8.push(&chunk) {
+                        yield text;
+                    }
+                }
+                Ok(None) => break,
             }
         }
         if let Some(text) = utf8.finish() {
@@ -795,7 +809,7 @@ pub async fn post_stream(
 
 (Note: `futures::StreamExt` must be in scope for `.next()` — import it: `use futures::{Stream, StreamExt};`)
 
-- [ ] **Step 4: Implement `src-tauri/src/core/providers/mock.rs` (prepend above the test module)**
+- [x] **Step 4: Implement `src-tauri/src/core/providers/mock.rs` (prepend above the test module)**
 
 ```rust
 use crate::core::error::{Error, Result};
@@ -809,8 +823,10 @@ use super::Provider;
 
 /// Scripted provider for tests and UI development without API keys.
 /// Each `stream_chat` call pops one turn (a Vec of events) from the script.
+pub type RecordedCall = (String, Vec<Message>, Vec<ToolSpec>);
+
 pub struct MockProvider {
-    pub calls: Mutex<Vec<(String, Vec<Message>, Vec<ToolSpec>)>>,
+    pub calls: Mutex<Vec<RecordedCall>>,
     script: Mutex<VecDeque<Vec<Result<ChatEvent>>>>,
 }
 
@@ -840,12 +856,12 @@ impl Provider for MockProvider {
 }
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `cd /b/Jetbrains/projects/kimislop/src-tauri && cargo test`
 Expected: `test result: ok. 25 passed`
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /b/Jetbrains/projects/kimislop
