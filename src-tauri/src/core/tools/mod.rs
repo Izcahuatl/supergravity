@@ -1,0 +1,121 @@
+use crate::core::error::{Error, Result};
+use crate::core::types::ToolSpec;
+use std::path::{Component, Path, PathBuf};
+
+/// Shared execution context for tools.
+pub struct ToolContext {
+    pub workspace_root: PathBuf,
+}
+
+/// A capability the agent can invoke via provider tool calls.
+#[async_trait::async_trait]
+pub trait Tool: Send + Sync {
+    fn spec(&self) -> ToolSpec;
+    /// Tools returning true require user approval in `Manual` approval mode.
+    fn needs_approval(&self) -> bool {
+        false
+    }
+    async fn execute(&self, ctx: &ToolContext, args_json: &str) -> Result<String>;
+}
+
+/// The v1 tool set given to every agent run.
+pub fn default_tools() -> Vec<Box<dyn Tool>> {
+    vec![
+        Box::new(fs::ReadFileTool),
+        Box::new(fs::WriteFileTool),
+        Box::new(fs::ListDirTool),
+    ]
+}
+
+/// Truncate tool output to `max_bytes` (on a char boundary), noting the cut.
+pub fn truncate_output(s: &str, max_bytes: usize) -> String {
+    if s.len() <= max_bytes {
+        return s.to_string();
+    }
+    let mut end = max_bytes;
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}\n…[truncated {} bytes]", &s[..end], s.len() - end)
+}
+
+/// Lexically normalize a path (resolve `.` and `..` without touching the fs).
+fn normalize(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for comp in path.components() {
+        match comp {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
+/// Resolve `p` inside the workspace root. Rejects paths that escape the root
+/// (`..` traversal or absolute paths outside it). Note: this is a lexical
+/// check; symlinks inside the workspace pointing outside are not resolved.
+pub fn resolve_in_workspace(root: &Path, p: &str) -> Result<PathBuf> {
+    let root_n = normalize(root);
+    let candidate = Path::new(p);
+    let resolved = if candidate.is_absolute() {
+        normalize(candidate)
+    } else {
+        normalize(&root_n.join(candidate))
+    };
+    if resolved.starts_with(&root_n) {
+        Ok(resolved)
+    } else {
+        Err(Error::Tool(format!("path escapes workspace: {p}")))
+    }
+}
+
+pub mod fs;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn sandbox_accepts_relative_paths() {
+        let root = Path::new("/ws");
+        assert_eq!(resolve_in_workspace(root, "src/main.rs").unwrap(), PathBuf::from("/ws/src/main.rs"));
+        assert_eq!(resolve_in_workspace(root, ".").unwrap(), PathBuf::from("/ws"));
+    }
+
+    #[test]
+    fn sandbox_normalizes_dot_segments() {
+        let root = Path::new("/ws");
+        assert_eq!(resolve_in_workspace(root, "a/../b").unwrap(), PathBuf::from("/ws/b"));
+    }
+
+    #[test]
+    fn sandbox_rejects_parent_escape() {
+        let root = Path::new("/ws");
+        assert!(resolve_in_workspace(root, "../outside").is_err());
+        assert!(resolve_in_workspace(root, "a/../../outside").is_err());
+    }
+
+    #[test]
+    fn sandbox_rejects_absolute_escape() {
+        let root = if cfg!(windows) { Path::new("C:\\ws") } else { Path::new("/ws") };
+        let evil = if cfg!(windows) { "D:\\other\\x" } else { "/etc/passwd" };
+        assert!(resolve_in_workspace(root, evil).is_err());
+    }
+
+    #[test]
+    fn truncate_output_short_strings_unchanged() {
+        assert_eq!(truncate_output("hello", 100), "hello");
+    }
+
+    #[test]
+    fn truncate_output_long_strings_get_note() {
+        let s = "x".repeat(100);
+        let out = truncate_output(&s, 10);
+        assert!(out.starts_with(&"x".repeat(10)));
+        assert!(out.contains("truncated"), "{out}");
+    }
+}
