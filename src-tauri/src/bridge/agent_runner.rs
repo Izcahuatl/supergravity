@@ -1,14 +1,15 @@
 use crate::bridge::commands::{block, estr};
-use crate::bridge::state::AppState;
+use crate::bridge::state::{AppState, RunningAgent};
 use crate::core::agent::{self, AgentRequest, DEFAULT_MAX_ITERATIONS};
 use crate::core::approvals::ApprovalBroker;
 use crate::core::error::{Error, Result};
 use crate::core::providers::{build_provider, Provider};
-use crate::core::store::ConversationRow;
+use crate::core::store::{ConversationRow, Store};
 use crate::core::tools::default_tools;
-use crate::core::types::{AgentEvent, Message, Role};
+use crate::core::types::{AgentEvent, ApprovalMode, Message, Role};
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -24,61 +25,131 @@ pub async fn pump_events(
     }
 }
 
-/// Spawn the agent for a conversation with an explicit provider (test seam).
-pub async fn spawn_agent(
-    app: AppHandle,
-    state: &AppState,
-    conv: ConversationRow,
-    provider: Arc<dyn Provider>,
-) -> Result<()> {
-    let cid = conv.id.clone();
-    let ws = {
-        let s = state.store.clone();
-        let w = conv.workspace_id.clone();
-        block(move || s.get_workspace(&w)).await?
-    };
-    let history = {
-        let s = state.store.clone();
-        let c = cid.clone();
-        block(move || s.get_messages(&c)).await?
-    };
-    let (events_tx, events_rx) = mpsc::channel::<AgentEvent>(256);
-    let broker = Arc::new(ApprovalBroker::new(conv.approval_mode, events_tx.clone()));
-    let cancel = CancellationToken::new();
-    state.agents.lock().unwrap().insert(
-        cid.clone(),
-        crate::bridge::state::RunningAgent { cancel: cancel.clone(), broker: broker.clone() },
-    );
-    let store = state.store.clone();
-    let agents = state.agents.clone();
-    let cid_pump = cid.clone();
-    tauri::async_runtime::spawn(async move {
-        let app2 = app.clone();
-        let pump = tauri::async_runtime::spawn(pump_events(cid_pump, events_rx, move |v| {
-            let _ = app2.emit("agent-event", v);
-        }));
-        let outcome = agent::run(AgentRequest {
+/// Removes the agents-map entry on drop — including panic paths. Dropping the
+/// entry also drops the last broker `Sender` clone, which lets the pump end.
+struct AgentGuard {
+    agents: Arc<Mutex<HashMap<String, RunningAgent>>>,
+    cid: String,
+}
+
+impl Drop for AgentGuard {
+    fn drop(&mut self) {
+        if let Ok(mut g) = self.agents.lock() {
+            g.remove(&self.cid);
+        }
+    }
+}
+
+/// Everything the spawned agent task needs (assembled after the atomic reservation).
+pub struct AgentTaskParts {
+    pub agents: Arc<Mutex<HashMap<String, RunningAgent>>>,
+    pub store: Arc<Store>,
+    pub workspace_root: PathBuf,
+    pub model: String,
+    pub history: Vec<Message>,
+    pub provider: Arc<dyn Provider>,
+    pub broker: Arc<ApprovalBroker>,
+    pub cancel: CancellationToken,
+    pub events_tx: mpsc::Sender<AgentEvent>,
+    pub events_rx: mpsc::Receiver<AgentEvent>,
+    pub conversation_id: String,
+}
+
+impl AgentTaskParts {
+    /// Reserve the agents-map slot (atomic guard+insert), then load everything
+    /// the run needs. On any failure the reservation is released.
+    pub async fn new(state: &AppState, conv: ConversationRow, provider: Arc<dyn Provider>) -> Result<Self> {
+        let cid = conv.id.clone();
+        let (events_tx, events_rx) = mpsc::channel::<AgentEvent>(256);
+        let cancel = CancellationToken::new();
+        let broker = Arc::new(ApprovalBroker::new(ApprovalMode::Manual, events_tx.clone()));
+        {
+            let mut agents = state.agents.lock().unwrap();
+            if agents.contains_key(&cid) {
+                return Err(Error::Tool("an agent is already running in this conversation".into()));
+            }
+            agents.insert(cid.clone(), RunningAgent { cancel: cancel.clone(), broker: broker.clone() });
+        }
+        let result = Self::load(state, &conv, provider, broker, cancel, events_tx, events_rx).await;
+        if result.is_err() {
+            state.agents.lock().unwrap().remove(&cid);
+        }
+        result
+    }
+
+    async fn load(
+        state: &AppState,
+        conv: &ConversationRow,
+        provider: Arc<dyn Provider>,
+        broker: Arc<ApprovalBroker>,
+        cancel: CancellationToken,
+        events_tx: mpsc::Sender<AgentEvent>,
+        events_rx: mpsc::Receiver<AgentEvent>,
+    ) -> Result<Self> {
+        broker.set_mode(conv.approval_mode);
+        let ws = {
+            let s = state.store.clone();
+            let w = conv.workspace_id.clone();
+            block(move || s.get_workspace(&w)).await?
+        };
+        let history = {
+            let s = state.store.clone();
+            let c = conv.id.clone();
+            block(move || s.get_messages(&c)).await?
+        };
+        Ok(AgentTaskParts {
+            agents: state.agents.clone(),
+            store: state.store.clone(),
             workspace_root: PathBuf::from(&ws.path),
-            provider,
             model: conv.model.clone(),
             history,
-            tools: default_tools(),
-            approvals: broker,
-            events: events_tx,
+            provider,
+            broker,
             cancel,
-            max_iterations: DEFAULT_MAX_ITERATIONS,
+            events_tx,
+            events_rx,
+            conversation_id: conv.id.clone(),
+        })
+    }
+}
+
+/// The spawned task body: pump events, run the loop, persist produced messages
+/// (even on failure — partial runs stay resumable), free the agents-map entry.
+pub async fn run_agent_task(parts: AgentTaskParts, emit: impl Fn(serde_json::Value) + Send + 'static) {
+    let guard = AgentGuard { agents: parts.agents.clone(), cid: parts.conversation_id.clone() };
+    let pump = tokio::spawn(pump_events(parts.conversation_id.clone(), parts.events_rx, emit));
+    let outcome = agent::run(AgentRequest {
+        workspace_root: parts.workspace_root,
+        provider: parts.provider,
+        model: parts.model,
+        history: parts.history,
+        tools: default_tools(),
+        approvals: parts.broker,
+        events: parts.events_tx,
+        cancel: parts.cancel,
+        max_iterations: DEFAULT_MAX_ITERATIONS,
+    })
+    .await;
+    {
+        let store = parts.store.clone();
+        let cid = parts.conversation_id.clone();
+        let produced = outcome.produced;
+        let _ = block(move || {
+            for msg in &produced {
+                if let Err(e) = store.append_message(&cid, msg) {
+                    eprintln!("supergravity: failed to persist produced message: {e}");
+                }
+            }
+            Ok(())
         })
         .await;
-        // Persist produced messages even on failure (partial runs stay resumable).
-        for msg in &outcome.produced {
-            let _ = store.append_message(&cid, msg);
-        }
-        // Broker/agent senders are dropped with `run`; the pump ends when the
-        // channel closes.
-        let _ = pump.await;
-        agents.lock().unwrap().remove(&cid);
-    });
-    Ok(())
+    }
+    // Drop the map entry (and with it the last broker Sender clone) BEFORE
+    // awaiting the pump — otherwise the channel never closes and this task
+    // deadlocks. (A new run may start while the old pump drains its last
+    // buffered events; that window is acceptable.)
+    drop(guard);
+    let _ = pump.await;
 }
 
 pub async fn send_message_impl(
@@ -87,27 +158,13 @@ pub async fn send_message_impl(
     conversation_id: String,
     text: String,
 ) -> Result<()> {
-    if state.agents.lock().unwrap().contains_key(&conversation_id) {
-        return Err(Error::Tool("an agent is already running in this conversation".into()));
-    }
+    // Resolve provider/key FIRST — a config failure must not leave a dangling
+    // user message in history.
     let conv = {
         let s = state.store.clone();
         let c = conversation_id.clone();
         block(move || s.get_conversation(&c)).await?
     };
-    let user_msg = Message::text(Role::User, &text);
-    {
-        let s = state.store.clone();
-        let c = conversation_id.clone();
-        block(move || s.append_message(&c, &user_msg)).await?;
-    }
-    // Auto-title placeholder conversations from the first message.
-    if conv.title == "New Conversation" || conv.title.trim().is_empty() {
-        let title: String = text.chars().take(40).collect();
-        let s = state.store.clone();
-        let c = conversation_id.clone();
-        block(move || s.rename_conversation(&c, &title)).await?;
-    }
     let pcfg = {
         let s = state.store.clone();
         let pid = conv.provider_id.clone();
@@ -119,7 +176,29 @@ pub async fn send_message_impl(
         block(move || k.get(&pid)).await?
     };
     let provider: Arc<dyn Provider> = Arc::from(build_provider(&pcfg, api_key)?);
-    spawn_agent(app, state, conv, provider).await
+
+    let user_msg = Message::text(Role::User, &text);
+    {
+        let s = state.store.clone();
+        let c = conversation_id.clone();
+        block(move || s.append_message(&c, &user_msg)).await?;
+    }
+    // Auto-title placeholder conversations from the first message.
+    if conv.title == "New Conversation" || conv.title.trim().is_empty() {
+        let title: String = text.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(40).collect();
+        let s = state.store.clone();
+        let c = conversation_id.clone();
+        block(move || s.rename_conversation(&c, &title)).await?;
+    }
+
+    let parts = AgentTaskParts::new(state, conv, provider).await?;
+    tauri::async_runtime::spawn(async move {
+        let emit = move |v: serde_json::Value| {
+            let _ = app.emit("agent-event", v);
+        };
+        run_agent_task(parts, emit).await;
+    });
+    Ok(())
 }
 
 pub async fn cancel_agent_impl(state: &AppState, conversation_id: String) -> Result<()> {
@@ -139,8 +218,8 @@ pub async fn resolve_approval_impl(state: &AppState, conversation_id: String, re
     }
 }
 
-// `Result` here is `core::error::Result` (1-parameter alias), so the command
-// wrappers must spell out the two-parameter std form (same as commands.rs).
+// Wrappers use fully-qualified Result: `core::error::Result` (1-param alias) is
+// imported in this file, so unqualified `Result<(), String>` would not compile.
 #[tauri::command]
 pub async fn send_message(
     app: AppHandle,
@@ -169,7 +248,9 @@ pub async fn resolve_approval(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::types::AgentEvent;
+    use crate::bridge::state::AppState;
+    use crate::core::providers::mock::MockProvider;
+    use crate::core::types::{AgentEvent, ChatEvent, Message, Role};
     use tokio::sync::mpsc;
 
     #[tokio::test]
@@ -194,5 +275,71 @@ mod tests {
             serde_json::json!({"conversation_id": "conv-1", "event": {"kind": "message_done"}})
         );
         assert!(out_rx.try_recv().is_err(), "channel closes after senders drop");
+    }
+
+    /// Full lifecycle: scripted run persists produced messages, emits events,
+    /// and ALWAYS frees the agents-map entry (the deadlock regression test).
+    #[tokio::test]
+    async fn agent_task_lifecycle_completes_and_cleans_up() {
+        let state = AppState::test();
+        let dir = tempfile::tempdir().unwrap();
+        let ws = state.store.add_workspace("proj", &dir.path().to_string_lossy()).unwrap();
+        let cid = state
+            .store
+            .create_conversation(&ws, "c", "mock", "m", crate::core::types::ApprovalMode::Auto)
+            .unwrap();
+        state.store.append_message(&cid, &Message::text(Role::User, "go")).unwrap();
+
+        let provider = std::sync::Arc::new(MockProvider::new(vec![vec![
+            Ok(ChatEvent::TextDelta("hello".into())),
+            Ok(ChatEvent::Done),
+        ]]));
+        let conv = state.store.get_conversation(&cid).unwrap();
+        let parts = AgentTaskParts::new(&state, conv, provider).await.unwrap();
+        let (out_tx, mut out_rx) = mpsc::channel::<serde_json::Value>(16);
+        let events_seen = tokio::spawn(async move {
+            let mut kinds = vec![];
+            while let Some(v) = out_rx.recv().await {
+                kinds.push(v["event"]["kind"].as_str().unwrap().to_string());
+            }
+            kinds
+        });
+
+        // Must COMPLETE (the original pump-order bug deadlocked here forever).
+        tokio::time::timeout(std::time::Duration::from_secs(10), run_agent_task(parts, move |v| {
+            let _ = out_tx.try_send(v);
+        }))
+        .await
+        .expect("agent task must not deadlock");
+
+        // Map entry freed.
+        assert!(state.agents.lock().unwrap().is_empty(), "agents map must be empty after run");
+        // Produced assistant message persisted.
+        let msgs = state.store.get_messages(&cid).unwrap();
+        assert_eq!(msgs.len(), 2, "user + assistant");
+        assert_eq!(msgs[1].role, Role::Assistant);
+        // Events flowed through the emit seam.
+        let kinds = events_seen.await.unwrap();
+        assert!(kinds.contains(&"text_delta".to_string()), "{kinds:?}");
+        assert!(kinds.contains(&"message_done".to_string()), "{kinds:?}");
+    }
+
+    #[tokio::test]
+    async fn reservation_guard_rejects_duplicate() {
+        let state = AppState::test();
+        let dir = tempfile::tempdir().unwrap();
+        let ws = state.store.add_workspace("proj", &dir.path().to_string_lossy()).unwrap();
+        let cid = state
+            .store
+            .create_conversation(&ws, "c", "mock", "m", crate::core::types::ApprovalMode::Auto)
+            .unwrap();
+        let conv = state.store.get_conversation(&cid).unwrap();
+        let provider = std::sync::Arc::new(MockProvider::new(vec![]));
+        let _parts = AgentTaskParts::new(&state, conv.clone(), provider).await.unwrap();
+        let provider2 = std::sync::Arc::new(MockProvider::new(vec![]));
+        // `.err().unwrap()` instead of `.unwrap_err()`: the latter needs
+        // `AgentTaskParts: Debug`, which it cannot derive (`Arc<dyn Provider>`).
+        let err = AgentTaskParts::new(&state, conv, provider2).await.err().unwrap();
+        assert!(err.to_string().contains("already running"), "{err}");
     }
 }
