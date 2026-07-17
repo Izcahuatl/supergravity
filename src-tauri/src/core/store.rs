@@ -25,6 +25,9 @@ pub struct ConversationRow {
     pub updated_at: i64,
 }
 
+/// SQLite-backed persistence. All methods are synchronous — async callers
+/// (the Tauri bridge) MUST invoke them via `tokio::task::spawn_blocking`
+/// or Tauri's sync-command mechanism, never directly on a runtime worker.
 pub struct Store {
     pub(crate) conn: Mutex<Connection>,
 }
@@ -199,7 +202,7 @@ impl Store {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, workspace_id, title, provider_id, model, approval_mode, created_at, updated_at
-             FROM conversations WHERE workspace_id = ?1 ORDER BY updated_at DESC",
+             FROM conversations WHERE workspace_id = ?1 ORDER BY updated_at DESC, rowid DESC",
         )?;
         let rows = stmt
             .query_map(params![workspace_id], |r| {

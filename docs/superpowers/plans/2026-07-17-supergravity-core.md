@@ -4321,7 +4321,7 @@ git commit -m "feat(core): agent tool-call loop with approvals and cancellation"
 - Create: `src-tauri/src/core/store.rs`
 - Modify: `src-tauri/src/core/mod.rs` (add `pub mod store;`)
 
-- [ ] **Step 1: Write the failing tests — create `src-tauri/src/core/store.rs` containing ONLY**
+- [x] **Step 1: Write the failing tests — create `src-tauri/src/core/store.rs` containing ONLY**
 
 ```rust
 #[cfg(test)]
@@ -4445,12 +4445,12 @@ Modify `src-tauri/src/core/mod.rs` — add:
 pub mod store;
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd /b/Jetbrains/projects/kimislop/src-tauri && cargo test store`
 Expected: compile errors — `Store`, `open_in_memory` not found.
 
-- [ ] **Step 3: Implement the store (prepend to `src-tauri/src/core/store.rs`)**
+- [x] **Step 3: Implement the store (prepend to `src-tauri/src/core/store.rs`)**
 
 ```rust
 use crate::core::error::Result;
@@ -4788,12 +4788,12 @@ impl Store {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd /b/Jetbrains/projects/kimislop/src-tauri && cargo test store`
 Expected: `test result: ok. 7 passed`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /b/Jetbrains/projects/kimislop
@@ -5051,3 +5051,4 @@ git commit -m "chore(core): finalize module exports, clippy/fmt clean"
 - Shell tool: process-tree kill on timeout (Windows Job Objects / Unix killpg) — kill_on_drop only kills the direct child.
 - Ollama: tool-result messages could carry `tool_name` to help the model attribute results (needs a name field on `ContentPart::ToolResult`).
 - Truncate shell stdout BEFORE appending `[stderr]`/`[exit code]` markers, so failure diagnostics survive the 50KB cut.
+- Store v2 migration: indexes on `messages.conversation_id` and `conversations.workspace_id`; CHECK on `providers.kind`; transactional `append_message`; error (not silent default) on unknown stored kind strings. Also add `delete_conversation` for the UI.
