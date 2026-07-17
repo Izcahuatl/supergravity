@@ -879,7 +879,7 @@ git commit -m "feat(core): provider trait, streaming POST helper, scripted MockP
 - Create: `src-tauri/src/core/providers/openai.rs`
 - Modify: `src-tauri/src/core/providers/mod.rs` (add `pub mod openai;`)
 
-- [ ] **Step 1: Write the failing tests — create `src-tauri/src/core/providers/openai.rs` containing ONLY**
+- [x] **Step 1: Write the failing tests — create `src-tauri/src/core/providers/openai.rs` containing ONLY**
 
 ```rust
 #[cfg(test)]
@@ -1002,6 +1002,30 @@ mod tests {
         a.push_data(r#"{"choices":[{"delta":{"content":"x"},"finish_reason":"stop"}]}"#);
         assert_eq!(a.finish(), vec![ChatEvent::Done]);
     }
+
+    #[test]
+    fn assembler_finish_flushes_pending_tool_calls() {
+        // Some OpenAI-compatible servers end tool-call streams with "stop" or
+        // without any finish_reason — buffered calls must not be lost.
+        let mut a = OpenAiAssembler::default();
+        a.push_data(r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"read_file","arguments":"{}"}}]},"finish_reason":"stop"}]}"#);
+        let evs = a.finish();
+        assert_eq!(
+            evs,
+            vec![
+                ChatEvent::ToolCall { id: "call_1".into(), name: "read_file".into(), args_json: "{}".into() },
+                ChatEvent::Done,
+            ]
+        );
+    }
+
+    #[test]
+    fn assembler_ignores_duplicate_done() {
+        let mut a = OpenAiAssembler::default();
+        assert_eq!(a.push_data("[DONE]"), vec![ChatEvent::Done]);
+        assert!(a.push_data("[DONE]").is_empty());
+        assert!(a.finish().is_empty());
+    }
 }
 ```
 
@@ -1011,12 +1035,12 @@ Add to `src-tauri/src/core/providers/mod.rs` (top of module list):
 pub mod openai;
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd /b/Jetbrains/projects/kimislop/src-tauri && cargo test openai`
 Expected: compile errors — `build_body`, `OpenAiAssembler` not found.
 
-- [ ] **Step 3: Implement the provider (prepend to `src-tauri/src/core/providers/openai.rs`)**
+- [x] **Step 3: Implement the provider (prepend to `src-tauri/src/core/providers/openai.rs`)**
 
 ```rust
 use crate::core::error::Result;
@@ -1104,6 +1128,7 @@ pub fn build_body(model: &str, messages: &[Message], tools: &[ToolSpec]) -> Valu
     let mut body = json!({
         "model": model,
         "stream": true,
+        "stream_options": {"include_usage": true},
         "messages": openai_messages(messages),
     });
     if !tools.is_empty() {
@@ -1141,8 +1166,10 @@ impl OpenAiAssembler {
         let mut out = Vec::new();
         let trimmed = data.trim();
         if trimmed == "[DONE]" {
-            self.done_emitted = true;
-            out.push(ChatEvent::Done);
+            if !self.done_emitted {
+                self.done_emitted = true;
+                out.push(ChatEvent::Done);
+            }
             return out;
         }
         let v: Value = match serde_json::from_str(trimmed) {
@@ -1188,14 +1215,19 @@ impl OpenAiAssembler {
         out
     }
 
-    /// Call when the byte stream ends; emits `Done` if `[DONE]` never arrived.
+    /// Call when the byte stream ends; flushes any buffered tool calls (some
+    /// OpenAI-compatible servers never send `finish_reason: "tool_calls"`) and
+    /// emits `Done` if `[DONE]` never arrived.
     pub fn finish(&mut self) -> Vec<ChatEvent> {
-        if self.done_emitted {
-            vec![]
-        } else {
-            self.done_emitted = true;
-            vec![ChatEvent::Done]
+        let mut out = Vec::new();
+        for (_, buf) in std::mem::take(&mut self.tool_calls) {
+            out.push(ChatEvent::ToolCall { id: buf.id, name: buf.name, args_json: buf.args });
         }
+        if !self.done_emitted {
+            self.done_emitted = true;
+            out.push(ChatEvent::Done);
+        }
+        out
     }
 }
 
@@ -1242,12 +1274,12 @@ impl Provider for OpenAiProvider {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd /b/Jetbrains/projects/kimislop/src-tauri && cargo test openai`
 Expected: `test result: ok. 8 passed`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /b/Jetbrains/projects/kimislop
