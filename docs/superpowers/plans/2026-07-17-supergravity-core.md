@@ -263,6 +263,8 @@ pub enum ChatEvent {
     TextDelta(String),
     ToolCall { id: String, name: String, args_json: String },
     Usage { input_tokens: u64, output_tokens: u64 },
+    /// Server-sent error frame (Anthropic `error` events, OpenAI error payloads).
+    Error(String),
     Done,
 }
 
@@ -1026,6 +1028,13 @@ mod tests {
         assert!(a.push_data("[DONE]").is_empty());
         assert!(a.finish().is_empty());
     }
+
+    #[test]
+    fn assembler_error_payload() {
+        let mut a = OpenAiAssembler::default();
+        let evs = a.push_data(r#"{"error":{"message":"rate limited","type":"rate_limit_error"}}"#);
+        assert_eq!(evs, vec![ChatEvent::Error("rate limited".into())]);
+    }
 }
 ```
 
@@ -1176,6 +1185,11 @@ impl OpenAiAssembler {
             Ok(v) => v,
             Err(_) => return out,
         };
+        if let Some(err) = v.get("error") {
+            let msg = err["message"].as_str().unwrap_or("unknown provider error");
+            out.push(ChatEvent::Error(msg.to_string()));
+            return out;
+        }
         if let Some(u) = v.get("usage").filter(|u| !u.is_null()) {
             out.push(ChatEvent::Usage {
                 input_tokens: u["prompt_tokens"].as_u64().unwrap_or(0),
@@ -1295,7 +1309,7 @@ git commit -m "feat(core): OpenAI + OpenAI-compatible provider"
 - Create: `src-tauri/src/core/providers/anthropic.rs`
 - Modify: `src-tauri/src/core/providers/mod.rs` (add `pub mod anthropic;`)
 
-- [ ] **Step 1: Write the failing tests — create `src-tauri/src/core/providers/anthropic.rs` containing ONLY**
+- [x] **Step 1: Write the failing tests — create `src-tauri/src/core/providers/anthropic.rs` containing ONLY**
 
 ```rust
 #[cfg(test)]
@@ -1423,6 +1437,36 @@ mod tests {
         assert!(a.push(&ev("content_block_delta", "{broken")).is_empty());
         assert!(a.finish().is_empty());
     }
+
+    #[test]
+    fn body_skips_messages_with_no_blocks() {
+        let msgs = vec![
+            Message { role: Role::User, parts: vec![] },
+            Message::text(Role::User, "real"),
+        ];
+        let body = build_body("m", &msgs, &[]);
+        assert_eq!(
+            body["messages"],
+            serde_json::json!([{"role": "user", "content": [{"type": "text", "text": "real"}]}])
+        );
+    }
+
+    #[test]
+    fn assembler_truncated_stream_finish_emits_done_once() {
+        let mut a = AnthropicAssembler::default();
+        assert!(a.push(&ev("message_start", r#"{"message":{"usage":{"input_tokens":5}}}"#)).is_empty());
+        assert_eq!(a.push(&ev("content_block_delta", r#"{"index":0,"delta":{"type":"text_delta","text":"Hi"}}"#)).len(), 1);
+        assert_eq!(a.finish(), vec![ChatEvent::Done]);
+        assert!(a.finish().is_empty());
+    }
+
+    #[test]
+    fn assembler_error_event() {
+        let mut a = AnthropicAssembler::default();
+        let evs = a.push(&ev("error", r#"{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#));
+        assert_eq!(evs, vec![ChatEvent::Error("Overloaded".into())]);
+        assert!(a.finish().is_empty(), "no Done after an error frame");
+    }
 }
 ```
 
@@ -1432,12 +1476,12 @@ Add to `src-tauri/src/core/providers/mod.rs`:
 pub mod anthropic;
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd /b/Jetbrains/projects/kimislop/src-tauri && cargo test anthropic`
 Expected: compile errors — `build_body`, `AnthropicAssembler` not found.
 
-- [ ] **Step 3: Implement the provider (prepend to `src-tauri/src/core/providers/anthropic.rs`)**
+- [x] **Step 3: Implement the provider (prepend to `src-tauri/src/core/providers/anthropic.rs`)**
 
 ```rust
 use crate::core::error::Result;
@@ -1540,11 +1584,15 @@ pub fn build_body(model: &str, messages: &[Message], tools: &[ToolSpec]) -> Valu
     let mut msgs: Vec<Value> = Vec::new();
     for m in messages {
         if let Some((role, blocks)) = message_blocks(m) {
+            // Anthropic rejects empty content arrays — skip block-less messages.
+            if blocks.is_empty() {
+                continue;
+            }
             // Anthropic requires strictly alternating roles — merge consecutive same-role turns.
             if let Some(last) = msgs.last_mut() {
                 if last["role"].as_str() == Some(role.as_str()) {
-                    if let (Some(arr), new_blocks) = (last["content"].as_array_mut(), blocks) {
-                        arr.extend(new_blocks);
+                    if let Some(arr) = last["content"].as_array_mut() {
+                        arr.extend(blocks);
                         continue;
                     }
                 }
@@ -1586,6 +1634,7 @@ pub struct AnthropicAssembler {
     blocks: BTreeMap<u64, BlockBuf>,
     input_tokens: u64,
     output_tokens: u64,
+    started: bool,
     done_emitted: bool,
 }
 
@@ -1598,6 +1647,7 @@ impl AnthropicAssembler {
         };
         match ev.event.as_deref().unwrap_or("") {
             "message_start" => {
+                self.started = true;
                 self.input_tokens = v["message"]["usage"]["input_tokens"].as_u64().unwrap_or(0);
             }
             "content_block_start" => {
@@ -1650,21 +1700,32 @@ impl AnthropicAssembler {
                 self.output_tokens = v["usage"]["output_tokens"].as_u64().unwrap_or(self.output_tokens);
             }
             "message_stop" => {
+                if self.done_emitted {
+                    return out;
+                }
                 self.done_emitted = true;
                 out.push(ChatEvent::Usage { input_tokens: self.input_tokens, output_tokens: self.output_tokens });
                 out.push(ChatEvent::Done);
+            }
+            "error" => {
+                // Server-side failure (e.g. overloaded) — ends the stream; no Done after this.
+                self.done_emitted = true;
+                let msg = v["error"]["message"].as_str().unwrap_or("unknown anthropic error");
+                out.push(ChatEvent::Error(msg.to_string()));
             }
             _ => {}
         }
         out
     }
 
+    /// Safety net for truncated streams: emits `Done` only when a stream
+    /// started (`message_start` seen) but `message_stop` never arrived.
     pub fn finish(&mut self) -> Vec<ChatEvent> {
-        if self.done_emitted {
-            vec![]
-        } else {
+        if self.started && !self.done_emitted {
             self.done_emitted = true;
             vec![ChatEvent::Done]
+        } else {
+            vec![]
         }
     }
 }
@@ -1711,12 +1772,12 @@ impl Provider for AnthropicProvider {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd /b/Jetbrains/projects/kimislop/src-tauri && cargo test anthropic`
 Expected: `test result: ok. 7 passed`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /b/Jetbrains/projects/kimislop
@@ -3679,6 +3740,14 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn provider_error_event_aborts() {
+        let script = vec![vec![Ok(ChatEvent::TextDelta("partial".into())), Ok(ChatEvent::Error("overloaded".into()))]];
+        let (result, events, _, _) = run_agent(RunArgs { script, mode: ApprovalMode::Auto, tools: vec![], max_iterations: 5 }).await;
+        assert!(result.is_err());
+        assert!(events.iter().any(|e| matches!(e, AgentEvent::Error(_))));
+    }
+
+    #[tokio::test]
     async fn pre_cancelled_token_aborts() {
         let script = vec![vec![Ok(ChatEvent::TextDelta("x".into())), Ok(ChatEvent::Done)]];
         let provider = std::sync::Arc::new(MockProvider::new(script));
@@ -3782,6 +3851,10 @@ pub async fn run(req: AgentRequest) -> Result<Vec<Message>> {
                 }
                 Ok(ChatEvent::ToolCall { id, name, args_json }) => calls.push((id, name, args_json)),
                 Ok(ChatEvent::Usage { .. }) => {}
+                Ok(ChatEvent::Error(msg)) => {
+                    stream_err = Some(Error::Provider { status: 0, body: msg });
+                    break;
+                }
                 Ok(ChatEvent::Done) => break,
                 Err(e) => {
                     stream_err = Some(e);

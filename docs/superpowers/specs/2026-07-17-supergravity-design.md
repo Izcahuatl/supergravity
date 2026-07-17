@@ -105,8 +105,9 @@ enum Role { System, User, Assistant, Tool }
 struct Message { role: Role, parts: Vec<ContentPart> }
 enum ContentPart { Text { text }, ToolCall { id, name, args_json }, ToolResult { tool_call_id, content, is_error } }
 struct ToolSpec { name: String, description: String, params_schema: serde_json::Value } // JSON Schema
-// Stream items are Result<ChatEvent>; errors travel in Err, not in-band:
-enum ChatEvent { TextDelta(String), ToolCall { id, name, args_json }, Usage { input_tokens, output_tokens }, Done }
+// Stream items are Result<ChatEvent>; transport errors travel in Err,
+// server error frames travel in-band as ChatEvent::Error:
+enum ChatEvent { TextDelta(String), ToolCall { id, name, args_json }, Usage { input_tokens, output_tokens }, Error(String), Done }
 ```
 
 `Provider` trait (async_trait):

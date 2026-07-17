@@ -131,7 +131,7 @@ impl OpenAiAssembler {
             Ok(v) => v,
             Err(_) => return out,
         };
-        if let Some(err) = v.get("error") {
+        if let Some(err) = v.get("error").filter(|e| !e.is_null()) {
             let msg = err["message"].as_str().unwrap_or("unknown provider error");
             out.push(ChatEvent::Error(msg.to_string()));
             return out;
