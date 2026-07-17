@@ -111,30 +111,41 @@ pub async fn upsert_provider_impl(state: &AppState, cfg: ProviderConfig) -> Resu
 }
 
 pub async fn delete_provider_impl(state: &AppState, id: String) -> Result<()> {
-    let _ = state.keys.delete(&id);
+    let k = state.keys.clone();
+    let kid = id.clone();
+    let _ = block(move || k.delete(&kid)).await;
     let s = state.store.clone();
     block(move || s.delete_provider(&id)).await
 }
 
 pub async fn set_api_key_impl(state: &AppState, provider_id: String, key: String) -> Result<()> {
-    state.keys.set(&provider_id, &key)?;
+    // Validate the provider exists BEFORE writing the keychain (no orphan entries).
     let mut cfg = {
         let s = state.store.clone();
         let pid = provider_id.clone();
         block(move || s.get_provider(&pid)).await?
     };
+    {
+        let k = state.keys.clone();
+        let pid = provider_id.clone();
+        block(move || k.set(&pid, &key)).await?;
+    }
     cfg.has_key = true;
     let s = state.store.clone();
     block(move || s.upsert_provider(&cfg)).await
 }
 
 pub async fn delete_api_key_impl(state: &AppState, provider_id: String) -> Result<()> {
-    state.keys.delete(&provider_id)?;
     let mut cfg = {
         let s = state.store.clone();
         let pid = provider_id.clone();
         block(move || s.get_provider(&pid)).await?
     };
+    {
+        let k = state.keys.clone();
+        let pid = provider_id.clone();
+        block(move || k.delete(&pid)).await?;
+    }
     cfg.has_key = false;
     let s = state.store.clone();
     block(move || s.upsert_provider(&cfg)).await
