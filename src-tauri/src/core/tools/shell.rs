@@ -43,7 +43,7 @@ impl Tool for RunShellTool {
     async fn execute(&self, ctx: &ToolContext, args_json: &str) -> Result<String> {
         let args: RunShellArgs = serde_json::from_str(args_json)?;
         let timeout = Duration::from_secs(
-            args.timeout_secs.unwrap_or(DEFAULT_TIMEOUT_SECS).min(MAX_TIMEOUT_SECS).max(1),
+            args.timeout_secs.unwrap_or(DEFAULT_TIMEOUT_SECS).clamp(1, MAX_TIMEOUT_SECS),
         );
         let mut cmd = if cfg!(windows) {
             let mut c = tokio::process::Command::new("cmd");
@@ -104,7 +104,7 @@ mod tests {
     #[tokio::test]
     async fn runs_command_and_captures_output() {
         let (_d, ctx) = ctx();
-        let cmd = if cfg!(windows) { "echo hello-sg" } else { "echo hello-sg" };
+        let cmd = "echo hello-sg";
         let out = RunShellTool.execute(&ctx, &format!(r#"{{"command": "{cmd}"}}"#)).await.unwrap();
         assert!(out.contains("hello-sg"), "{out}");
     }
@@ -112,7 +112,7 @@ mod tests {
     #[tokio::test]
     async fn reports_nonzero_exit() {
         let (_d, ctx) = ctx();
-        let cmd = if cfg!(windows) { "exit 3" } else { "exit 3" };
+        let cmd = "exit 3";
         let out = RunShellTool.execute(&ctx, &format!(r#"{{"command": "{cmd}"}}"#)).await.unwrap();
         assert!(out.contains("exit code"), "{out}");
     }
