@@ -1,3 +1,5 @@
+pub mod providers;
+
 pub mod error;
 pub mod types;
 
