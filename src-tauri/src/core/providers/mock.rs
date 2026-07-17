@@ -7,10 +7,13 @@ use std::sync::Mutex;
 
 use super::Provider;
 
+/// One recorded `stream_chat` invocation: (model, messages, tools).
+pub type RecordedCall = (String, Vec<Message>, Vec<ToolSpec>);
+
 /// Scripted provider for tests and UI development without API keys.
 /// Each `stream_chat` call pops one turn (a Vec of events) from the script.
 pub struct MockProvider {
-    pub calls: Mutex<Vec<(String, Vec<Message>, Vec<ToolSpec>)>>,
+    pub calls: Mutex<Vec<RecordedCall>>,
     script: Mutex<VecDeque<Vec<Result<ChatEvent>>>>,
 }
 
