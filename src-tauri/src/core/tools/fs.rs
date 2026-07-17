@@ -5,6 +5,7 @@ use serde_json::json;
 
 use super::{resolve_in_workspace, truncate_output, Tool, ToolContext};
 
+const MAX_FILE_READ: u64 = 10 * 1024 * 1024;
 const MAX_OUTPUT: usize = 50 * 1024;
 const DEFAULT_LINE_LIMIT: usize = 2000;
 const MAX_LIST_ENTRIES: usize = 500;
@@ -41,6 +42,13 @@ impl Tool for ReadFileTool {
         let path = resolve_in_workspace(&ctx.workspace_root, &args.path)?;
         let bytes = std::fs::read(&path)
             .map_err(|e| Error::Tool(format!("cannot read {}: {e}", path.display())))?;
+        if bytes.len() as u64 > MAX_FILE_READ {
+            return Err(Error::Tool(format!(
+                "file too large ({} bytes, max {MAX_FILE_READ}): {} — try grep for targeted reads",
+                bytes.len(),
+                path.display()
+            )));
+        }
         let text = String::from_utf8_lossy(&bytes);
         let offset = args.offset.unwrap_or(1).max(1);
         let limit = args.limit.unwrap_or(DEFAULT_LINE_LIMIT).max(1);
@@ -334,6 +342,18 @@ mod tests {
             .await
             .unwrap();
         assert!(out.contains("past end of file"), "{out}");
+    }
+
+    #[tokio::test]
+    async fn read_file_too_large_is_error() {
+        let (_d, ctx) = ctx();
+        let big = vec![b'x'; (MAX_FILE_READ + 1) as usize];
+        std::fs::write(ctx.workspace_root.join("big.txt"), &big).unwrap();
+        let err = ReadFileTool
+            .execute(&ctx, r#"{"path": "big.txt"}"#)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("too large"), "{err}");
     }
 
     #[tokio::test]

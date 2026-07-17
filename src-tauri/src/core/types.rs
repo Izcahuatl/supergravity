@@ -75,11 +75,12 @@ pub enum ApprovalMode {
 }
 
 /// One event from the agent loop toward the UI.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum AgentEvent {
     TextDelta(String),
     ToolCallProposed {
-        id: String,
+        tool_call_id: String,
         name: String,
         args_json: String,
     },
@@ -204,5 +205,24 @@ mod tests {
         let json = serde_json::to_string(&cfg).unwrap();
         let back: ProviderConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(cfg, back);
+    }
+
+    #[test]
+    fn agent_event_serde_shape() {
+        let json = serde_json::to_value(AgentEvent::TextDelta("hi".into())).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({"kind": "text_delta", "data": "hi"})
+        );
+        let json = serde_json::to_value(AgentEvent::ToolCallFinished {
+            tool_call_id: "c".into(),
+            ok: true,
+            summary: "s".into(),
+        })
+        .unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({"kind": "tool_call_finished", "data": {"tool_call_id": "c", "ok": true, "summary": "s"}})
+        );
     }
 }

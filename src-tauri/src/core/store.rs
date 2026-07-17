@@ -79,6 +79,9 @@ fn str_kind(s: &str) -> ProviderKind {
 
 impl Store {
     pub fn open(path: &Path) -> Result<Store> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
         let conn = Connection::open(path)?;
         let store = Store {
             conn: Mutex::new(conn),
@@ -168,6 +171,50 @@ impl Store {
             .lock()
             .unwrap()
             .execute("DELETE FROM workspaces WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    pub fn get_workspace(&self, id: &str) -> Result<WorkspaceRow> {
+        let conn = self.conn.lock().unwrap();
+        Ok(conn.query_row(
+            "SELECT id, name, path, created_at FROM workspaces WHERE id = ?1",
+            params![id],
+            |r| {
+                Ok(WorkspaceRow {
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                    path: r.get(2)?,
+                    created_at: r.get(3)?,
+                })
+            },
+        )?)
+    }
+
+    pub fn get_provider(&self, id: &str) -> Result<ProviderConfig> {
+        self.list_providers()?
+            .into_iter()
+            .find(|p| p.id == id)
+            .ok_or_else(|| crate::core::error::Error::Config(format!("unknown provider: {id}")))
+    }
+
+    pub fn update_conversation_model(
+        &self,
+        id: &str,
+        provider_id: &str,
+        model: &str,
+    ) -> Result<()> {
+        self.conn.lock().unwrap().execute(
+            "UPDATE conversations SET provider_id = ?1, model = ?2, updated_at = ?3 WHERE id = ?4",
+            params![provider_id, model, now_ts(), id],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_conversation(&self, id: &str) -> Result<()> {
+        self.conn
+            .lock()
+            .unwrap()
+            .execute("DELETE FROM conversations WHERE id = ?1", params![id])?;
         Ok(())
     }
 
@@ -490,5 +537,67 @@ mod tests {
         assert_eq!(list[0], updated);
         s.delete_provider("openai").unwrap();
         assert!(s.list_providers().unwrap().is_empty());
+    }
+
+    #[test]
+    fn get_workspace_and_provider_by_id() {
+        let s = store();
+        let ws = s.add_workspace("proj", "/tmp/proj").unwrap();
+        let row = s.get_workspace(&ws).unwrap();
+        assert_eq!(row.name, "proj");
+        assert_eq!(row.path, "/tmp/proj");
+        assert!(s.get_workspace("nope").is_err());
+        let cfg = ProviderConfig {
+            id: "openai".into(),
+            label: "OpenAI".into(),
+            kind: ProviderKind::OpenAi,
+            base_url: None,
+            has_key: false,
+            models: vec!["gpt-5".into()],
+            extra_headers: vec![],
+        };
+        s.upsert_provider(&cfg).unwrap();
+        assert_eq!(s.get_provider("openai").unwrap(), cfg);
+        assert!(s.get_provider("nope").is_err());
+    }
+
+    #[test]
+    fn update_conversation_model_roundtrip() {
+        let s = store();
+        let ws = s.add_workspace("proj", "/tmp/proj").unwrap();
+        let cid = s
+            .create_conversation(&ws, "c", "openai", "gpt-5", ApprovalMode::Auto)
+            .unwrap();
+        s.update_conversation_model(&cid, "anthropic", "claude-sonnet-4-5")
+            .unwrap();
+        let conv = s.get_conversation(&cid).unwrap();
+        assert_eq!(conv.provider_id, "anthropic");
+        assert_eq!(conv.model, "claude-sonnet-4-5");
+    }
+
+    #[test]
+    fn delete_conversation_removes_it() {
+        let s = store();
+        let ws = s.add_workspace("proj", "/tmp/proj").unwrap();
+        let cid = s
+            .create_conversation(&ws, "c", "openai", "m", ApprovalMode::Auto)
+            .unwrap();
+        s.append_message(&cid, &Message::text(Role::User, "hi"))
+            .unwrap();
+        s.delete_conversation(&cid).unwrap();
+        assert!(s.list_conversations(&ws).unwrap().is_empty());
+        assert!(s.get_conversation(&cid).is_err());
+        assert!(s.get_messages(&cid).unwrap().is_empty());
+    }
+
+    #[test]
+    fn open_creates_parent_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested/deeper/sg.db");
+        let s = Store::open(&path).unwrap();
+        assert!(path.exists());
+        // the store is fully usable at the nested path
+        s.add_workspace("proj", "/tmp/proj").unwrap();
+        assert_eq!(s.list_workspaces().unwrap().len(), 1);
     }
 }

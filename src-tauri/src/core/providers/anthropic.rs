@@ -9,7 +9,7 @@ use super::http::post_stream;
 use super::sse::{SseDecoder, SseEvent};
 use super::Provider;
 
-const DEFAULT_MAX_TOKENS: u32 = 8096;
+const DEFAULT_MAX_TOKENS: u32 = 8192;
 
 /// Anthropic Messages API backend.
 pub struct AnthropicProvider {
@@ -323,7 +323,7 @@ mod tests {
         ];
         let body = build_body("claude-x", &msgs, &[]);
         assert_eq!(body["system"], "be brief");
-        assert_eq!(body["max_tokens"], 8096);
+        assert_eq!(body["max_tokens"], 8192);
         assert_eq!(body["stream"], true);
         assert_eq!(
             body["messages"],

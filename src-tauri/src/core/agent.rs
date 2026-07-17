@@ -1,5 +1,5 @@
 use crate::core::approvals::ApprovalBroker;
-use crate::core::error::{Error, Result};
+use crate::core::error::Error;
 use crate::core::tools::{Tool, ToolContext};
 use crate::core::types::{AgentEvent, ChatEvent, ContentPart, Message, Role};
 use futures::StreamExt;
@@ -23,25 +23,52 @@ pub struct AgentRequest {
     pub max_iterations: usize,
 }
 
+/// Result of one agent run: the messages produced (persist these even on
+/// failure) plus the error that ended the run, if any.
+pub struct AgentOutcome {
+    /// Messages produced during the run — persist these even when `error` is Some.
+    pub produced: Vec<Message>,
+    /// The failure that ended the run, if any.
+    pub error: Option<Error>,
+}
+
 /// Run the tool-call loop until the model stops calling tools.
-/// Returns the messages produced during this run (assistant + tool messages),
-/// which the caller persists to the store.
-pub async fn run(req: AgentRequest) -> Result<Vec<Message>> {
-    let mut messages = req.history.clone();
+/// Returns an [`AgentOutcome`] with the messages produced during this run
+/// (assistant + tool messages), which the caller persists to the store.
+pub async fn run(req: AgentRequest) -> AgentOutcome {
+    // System prompt is built per-run and NOT persisted to history.
+    let mut messages = Vec::with_capacity(req.history.len() + 1);
+    messages.push(Message::text(
+        Role::System,
+        system_prompt(&req.workspace_root, req.approvals.mode(), &req.tools),
+    ));
+    messages.extend(req.history.iter().cloned());
     let mut produced: Vec<Message> = Vec::new();
 
     for _ in 0..req.max_iterations {
         if req.cancel.is_cancelled() {
             let _ = req.events.send(AgentEvent::Cancelled).await;
-            return Err(Error::Cancelled);
+            return AgentOutcome {
+                produced,
+                error: Some(Error::Cancelled),
+            };
         }
 
         let tool_specs: Vec<crate::core::types::ToolSpec> =
             req.tools.iter().map(|t| t.spec()).collect();
-        let mut stream = req
+        let mut stream = match req
             .provider
             .stream_chat(&req.model, &messages, &tool_specs)
-            .await?;
+            .await
+        {
+            Ok(s) => s,
+            Err(e) => {
+                return AgentOutcome {
+                    produced,
+                    error: Some(e),
+                };
+            }
+        };
 
         let mut text = String::new();
         let mut calls: Vec<(String, String, String)> = Vec::new(); // (id, name, args_json)
@@ -50,7 +77,10 @@ pub async fn run(req: AgentRequest) -> Result<Vec<Message>> {
         while let Some(item) = stream.next().await {
             if req.cancel.is_cancelled() {
                 let _ = req.events.send(AgentEvent::Cancelled).await;
-                return Err(Error::Cancelled);
+                return AgentOutcome {
+                    produced,
+                    error: Some(Error::Cancelled),
+                };
             }
             match item {
                 Ok(ChatEvent::TextDelta(d)) => {
@@ -80,7 +110,10 @@ pub async fn run(req: AgentRequest) -> Result<Vec<Message>> {
 
         if let Some(e) = stream_err {
             let _ = req.events.send(AgentEvent::Error(e.to_string())).await;
-            return Err(e);
+            return AgentOutcome {
+                produced,
+                error: Some(e),
+            };
         }
 
         let mut parts: Vec<ContentPart> = Vec::new();
@@ -103,7 +136,10 @@ pub async fn run(req: AgentRequest) -> Result<Vec<Message>> {
 
         if calls.is_empty() {
             let _ = req.events.send(AgentEvent::MessageDone).await;
-            return Ok(produced);
+            return AgentOutcome {
+                produced,
+                error: None,
+            };
         }
 
         let ctx = ToolContext {
@@ -113,12 +149,15 @@ pub async fn run(req: AgentRequest) -> Result<Vec<Message>> {
         for (id, name, args_json) in calls {
             if req.cancel.is_cancelled() {
                 let _ = req.events.send(AgentEvent::Cancelled).await;
-                return Err(Error::Cancelled);
+                return AgentOutcome {
+                    produced,
+                    error: Some(Error::Cancelled),
+                };
             }
             let _ = req
                 .events
                 .send(AgentEvent::ToolCallProposed {
-                    id: id.clone(),
+                    tool_call_id: id.clone(),
                     name: name.clone(),
                     args_json: args_json.clone(),
                 })
@@ -147,7 +186,10 @@ pub async fn run(req: AgentRequest) -> Result<Vec<Message>> {
                         let decision = tokio::select! {
                             _ = req.cancel.cancelled() => {
                                 let _ = req.events.send(AgentEvent::Cancelled).await;
-                                return Err(Error::Cancelled);
+                                return AgentOutcome {
+                                    produced,
+                                    error: Some(Error::Cancelled),
+                                };
                             }
                             res = req.approvals.check(&id, &name, &args_json) => res,
                         };
@@ -170,6 +212,14 @@ pub async fn run(req: AgentRequest) -> Result<Vec<Message>> {
                                 continue;
                             }
                             Err(e) => {
+                                let _ = req
+                                    .events
+                                    .send(AgentEvent::ToolCallFinished {
+                                        tool_call_id: id.clone(),
+                                        ok: false,
+                                        summary: format!("approval error: {e}"),
+                                    })
+                                    .await;
                                 results.push(ContentPart::ToolResult {
                                     tool_call_id: id,
                                     content: format!("approval error: {e}"),
@@ -226,7 +276,37 @@ pub async fn run(req: AgentRequest) -> Result<Vec<Message>> {
 
     let err = Error::Tool(format!("max iterations ({}) reached", req.max_iterations));
     let _ = req.events.send(AgentEvent::Error(err.to_string())).await;
-    Err(err)
+    AgentOutcome {
+        produced,
+        error: Some(err),
+    }
+}
+
+fn system_prompt(
+    workspace_root: &std::path::Path,
+    mode: crate::core::types::ApprovalMode,
+    tools: &[Box<dyn Tool>],
+) -> String {
+    let tool_names: Vec<String> = tools.iter().map(|t| t.spec().name).collect();
+    let mode_note = match mode {
+        crate::core::types::ApprovalMode::Manual => {
+            "File writes and shell commands require explicit user approval before executing."
+        }
+        crate::core::types::ApprovalMode::Auto => {
+            "You may write files and run shell commands without user approval."
+        }
+    };
+    format!(
+        "You are Supergravity, a coding agent.\n\
+         Workspace root: {}\n\
+         Available tools: {}.\n\
+         Rules: keep all file access inside the workspace root; read before you modify; \
+         prefer small, targeted changes; when a tool returns an error, adapt or explain instead of retrying blindly.\n\
+         {}",
+        workspace_root.display(),
+        tool_names.join(", "),
+        mode_note
+    )
 }
 
 #[cfg(test)]
@@ -274,7 +354,7 @@ mod tests {
     async fn run_agent(
         args: RunArgs,
     ) -> (
-        crate::core::error::Result<Vec<Message>>,
+        AgentOutcome,
         Vec<AgentEvent>,
         std::sync::Arc<MockProvider>,
         std::sync::Arc<ApprovalBroker>,
@@ -324,7 +404,7 @@ mod tests {
             max_iterations: 5,
         })
         .await;
-        let msgs = result.unwrap();
+        let msgs = result.produced;
         assert_eq!(msgs.len(), 1);
         assert_eq!(msgs[0].role, Role::Assistant);
         assert_eq!(
@@ -335,6 +415,43 @@ mod tests {
         );
         assert!(events.contains(&AgentEvent::TextDelta("hi ".into())));
         assert!(events.contains(&AgentEvent::MessageDone));
+    }
+
+    #[tokio::test]
+    async fn system_prompt_prepended_not_persisted() {
+        let script = vec![vec![
+            Ok(ChatEvent::TextDelta("hi".into())),
+            Ok(ChatEvent::Done),
+        ]];
+        let (result, _, provider, _) = run_agent(RunArgs {
+            script,
+            mode: ApprovalMode::Auto,
+            tools: vec![],
+            max_iterations: 5,
+        })
+        .await;
+        assert!(result.error.is_none());
+        let calls = provider.calls.lock().unwrap();
+        assert_eq!(
+            calls[0].1[0].role,
+            Role::System,
+            "first message sent to the provider is the system prompt"
+        );
+        assert!(
+            matches!(calls[0].1[0].parts[0], ContentPart::Text { .. }),
+            "system prompt is a text part"
+        );
+        assert_eq!(
+            calls[0].1[1].role,
+            Role::User,
+            "history follows the system prompt"
+        );
+        drop(calls);
+        assert_eq!(
+            result.produced[0].role,
+            Role::Assistant,
+            "system prompt must not appear in produced messages"
+        );
     }
 
     #[tokio::test]
@@ -362,7 +479,7 @@ mod tests {
             max_iterations: 5,
         })
         .await;
-        let msgs = result.unwrap();
+        let msgs = result.produced;
         assert_eq!(
             msgs.len(),
             3,
@@ -382,7 +499,7 @@ mod tests {
         assert_eq!(calls.len(), 2);
         assert!(calls[1].1.iter().any(|m| m.role == Role::Tool));
         assert!(events.contains(&AgentEvent::ToolCallProposed {
-            id: "c1".into(),
+            tool_call_id: "c1".into(),
             name: "echo".into(),
             args_json: "{\"a\":1}".into()
         }));
@@ -430,7 +547,7 @@ mod tests {
                 break;
             }
         }
-        let msgs = handle.await.unwrap().unwrap();
+        let msgs = handle.await.unwrap().produced;
         assert_eq!(
             msgs[1].parts,
             vec![ContentPart::ToolResult {
@@ -464,7 +581,7 @@ mod tests {
             max_iterations: 5,
         })
         .await;
-        let msgs = result.unwrap();
+        let msgs = result.produced;
         match &msgs[1].parts[0] {
             ContentPart::ToolResult {
                 content, is_error, ..
@@ -499,7 +616,7 @@ mod tests {
             max_iterations: 2,
         })
         .await;
-        assert!(result.is_err());
+        assert!(result.error.is_some());
         assert!(events.iter().any(|e| matches!(e, AgentEvent::Error(_))));
     }
 
@@ -516,7 +633,7 @@ mod tests {
             max_iterations: 5,
         })
         .await;
-        assert!(result.is_err());
+        assert!(result.error.is_some());
         assert!(events.iter().any(|e| matches!(e, AgentEvent::Error(_))));
     }
 
@@ -545,7 +662,10 @@ mod tests {
             max_iterations: 5,
         };
         let result = run(req).await;
-        assert!(matches!(result, Err(crate::core::error::Error::Cancelled)));
+        assert!(matches!(
+            result.error,
+            Some(crate::core::error::Error::Cancelled)
+        ));
         let mut saw_cancelled = false;
         while let Ok(ev) = events_rx.try_recv() {
             if ev == AgentEvent::Cancelled {
@@ -585,7 +705,7 @@ mod tests {
             max_iterations: 5,
         })
         .await;
-        let msgs = result.unwrap();
+        let msgs = result.produced;
         assert_eq!(msgs.len(), 3);
         assert_eq!(
             msgs[1].parts,
@@ -642,7 +762,7 @@ mod tests {
                 break;
             }
         }
-        let msgs = handle.await.unwrap().unwrap();
+        let msgs = handle.await.unwrap().produced;
         assert_eq!(
             msgs[1].parts,
             vec![ContentPart::ToolResult {
@@ -691,6 +811,9 @@ mod tests {
             }
         }
         let result = handle.await.unwrap();
-        assert!(matches!(result, Err(crate::core::error::Error::Cancelled)));
+        assert!(matches!(
+            result.error,
+            Some(crate::core::error::Error::Cancelled)
+        ));
     }
 }

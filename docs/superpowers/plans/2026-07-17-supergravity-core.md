@@ -5045,7 +5045,7 @@ From the final whole-implementation review: three Critical spec gaps (missing sy
 **Files:**
 - Modify: `src-tauri/src/core/agent.rs`, `tools/shell.rs`, `tools/fs.rs`, `tools/search.rs`, `store.rs`, `providers/mod.rs`, `types.rs`, `providers/anthropic.rs` (+ its test)
 
-- [ ] **Step 1: System prompt in the agent loop**
+- [x] **Step 1: System prompt in the agent loop**
 
 In `agent.rs`, add:
 
@@ -5083,7 +5083,7 @@ In `run()`, replace `let mut messages = req.history.clone();` with:
 
 Test `system_prompt_prepended_not_persisted`: after a text-only run, `provider.calls.lock().unwrap()[0].1[0].role == Role::System` and `result.produced[0].role == Role::Assistant` (system prompt not in produced).
 
-- [ ] **Step 2: AgentOutcome — persist partial runs on error/cancel**
+- [x] **Step 2: AgentOutcome — persist partial runs on error/cancel**
 
 In `agent.rs`:
 
@@ -5098,7 +5098,7 @@ pub struct AgentOutcome {
 
 Change `run` to return `AgentOutcome` (not `Result<Vec<Message>>`). Every `return Err(e)` becomes `return AgentOutcome { produced, error: Some(e) }`; success becomes `AgentOutcome { produced, error: None }`. Update the 13 agent tests: `result.unwrap()` → `result.produced`; `result.is_err()` → `result.error.is_some()`; cancelled → `matches!(result.error, Some(Error::Cancelled))`. (Note: with Step 1, produced[0] is now the first assistant message — the system prompt is excluded from produced, so existing produced assertions are unaffected.)
 
-- [ ] **Step 3: Shell failures are errors**
+- [x] **Step 3: Shell failures are errors**
 
 In `tools/shell.rs`, restructure the output handling:
 
@@ -5136,7 +5136,7 @@ In `tools/shell.rs`, restructure the output handling:
 
 Update the two tests to expect errors: `reports_nonzero_exit` → `execute(...).await.unwrap_err()` contains "exit code"; `times_out_and_kills` → `unwrap_err()` contains "timed out".
 
-- [ ] **Step 4: read_file size guard**
+- [x] **Step 4: read_file size guard**
 
 In `tools/fs.rs`, add `const MAX_FILE_READ: u64 = 10 * 1024 * 1024;` and after reading `bytes`:
 
@@ -5152,7 +5152,7 @@ In `tools/fs.rs`, add `const MAX_FILE_READ: u64 = 10 * 1024 * 1024;` and after r
 
 Test `read_file_too_large_is_error`: write a >10MB file, expect error containing "too large".
 
-- [ ] **Step 5: Store bridge-readiness methods**
+- [x] **Step 5: Store bridge-readiness methods**
 
 In `store.rs` add:
 
@@ -5200,7 +5200,7 @@ Also in `Store::open`, before `Connection::open`: create the parent dir:
 
 Tests: `get_workspace_and_provider_by_id`, `update_conversation_model_roundtrip`, `delete_conversation_removes_it`, `open_creates_parent_dirs` (tempdir + nested nonexistent path).
 
-- [ ] **Step 6: Provider presets + compat base_url requirement**
+- [x] **Step 6: Provider presets + compat base_url requirement**
 
 In `providers/mod.rs` add:
 
@@ -5236,7 +5236,7 @@ In `build_provider`, split the compat arm — it REQUIRES base_url:
 
 Update `factory_builds_all_kinds`: the OpenAiCompatible cfg needs `base_url: Some(...)`. New tests: `presets_cover_four_kinds` and `factory_rejects_compat_without_base_url`.
 
-- [ ] **Step 7: AgentEvent Serialize + tool_call_id naming**
+- [x] **Step 7: AgentEvent Serialize + tool_call_id naming**
 
 In `types.rs`:
 
@@ -5257,7 +5257,7 @@ pub enum AgentEvent {
 
 (`ToolCallProposed.id` renamed to `tool_call_id` for consistency.) Update `agent.rs` emissions and the one test asserting `ToolCallProposed { id: ... }`. New type test `agent_event_serde_shape`: TextDelta("hi") → `{"kind":"text_delta","data":"hi"}`; ToolCallFinished → `{"kind":"tool_call_finished","data":{"tool_call_id":"c","ok":true,"summary":"s"}}`.
 
-- [ ] **Step 8: ToolCallFinished on approval-channel error**
+- [x] **Step 8: ToolCallFinished on approval-channel error**
 
 In `agent.rs`, the `Err(e)` approval branch currently pushes a result with no finish event — add the emit first:
 
@@ -5280,15 +5280,15 @@ In `agent.rs`, the `Err(e)` approval branch currently pushes a result with no fi
                             }
 ```
 
-- [ ] **Step 9: grep output truncation**
+- [x] **Step 9: grep output truncation**
 
 In `tools/search.rs`: import `truncate_output` from `super`, add `const MAX_OUTPUT: usize = 50 * 1024;`, and return `Ok(truncate_output(&out.join("\n"), MAX_OUTPUT))` (replacing `Ok(out.join("\n"))` in GrepTool).
 
-- [ ] **Step 10: Anthropic max_tokens typo**
+- [x] **Step 10: Anthropic max_tokens typo**
 
 In `providers/anthropic.rs`: `DEFAULT_MAX_TOKENS: u32 = 8192;` and update the test asserting `8096` to `8192`.
 
-- [ ] **Step 11: Verify and commit**
+- [x] **Step 11: Verify and commit**
 
 Run: `cd /b/Jetbrains/projects/kimislop/src-tauri && cargo test` → all pass (≈135)
 Run: `cargo clippy --all-targets -- -D warnings` → clean

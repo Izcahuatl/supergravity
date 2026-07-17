@@ -83,23 +83,27 @@ impl Tool for RunShellTool {
                     out.push_str("[stderr]\n");
                     out.push_str(&String::from_utf8_lossy(&output.stderr));
                 }
+                let truncated = truncate_output(&out, MAX_OUTPUT);
                 if !output.status.success() {
-                    out.push_str(&format!(
-                        "\n[exit code {}]",
+                    // Non-zero exit is a tool failure — the model sees an error result.
+                    return Err(Error::Tool(format!(
+                        "{}\n[exit code {}]",
+                        truncated,
                         output.status.code().unwrap_or(-1)
-                    ));
+                    )));
                 }
-                if out.is_empty() {
-                    out = "[no output]".to_string();
+                if truncated.is_empty() {
+                    Ok("[no output]".to_string())
+                } else {
+                    Ok(truncated)
                 }
-                Ok(truncate_output(&out, MAX_OUTPUT))
             }
             Ok(Err(e)) => Err(e.into()),
-            Err(_) => Ok(format!(
+            Err(_) => Err(Error::Tool(format!(
                 "command timed out after {}s and was killed: {}",
                 timeout.as_secs(),
                 args.command
-            )),
+            ))),
         }
     }
 }
@@ -135,11 +139,11 @@ mod tests {
     async fn reports_nonzero_exit() {
         let (_d, ctx) = ctx();
         let cmd = "exit 3";
-        let out = RunShellTool
+        let err = RunShellTool
             .execute(&ctx, &format!(r#"{{"command": "{cmd}"}}"#))
             .await
-            .unwrap();
-        assert!(out.contains("exit code"), "{out}");
+            .unwrap_err();
+        assert!(err.to_string().contains("exit code"), "{err}");
     }
 
     #[tokio::test]
@@ -151,8 +155,8 @@ mod tests {
             "sleep 5"
         };
         let args = serde_json::json!({"command": cmd, "timeout_secs": 1}).to_string();
-        let out = RunShellTool.execute(&ctx, &args).await.unwrap();
-        assert!(out.contains("timed out"), "{out}");
+        let err = RunShellTool.execute(&ctx, &args).await.unwrap_err();
+        assert!(err.to_string().contains("timed out"), "{err}");
     }
 
     #[tokio::test]

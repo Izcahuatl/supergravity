@@ -3,9 +3,10 @@ use crate::core::types::ToolSpec;
 use serde::Deserialize;
 use serde_json::json;
 
-use super::{resolve_in_workspace, Tool, ToolContext};
+use super::{resolve_in_workspace, truncate_output, Tool, ToolContext};
 
 const MAX_MATCHES: usize = 200;
+const MAX_OUTPUT: usize = 50 * 1024;
 const MAX_GLOB_RESULTS: usize = 500;
 const MAX_FILE_BYTES: u64 = 5 * 1024 * 1024;
 
@@ -101,7 +102,7 @@ impl Tool for GrepTool {
         if out.len() >= MAX_MATCHES {
             out.push(format!("…[capped at {MAX_MATCHES} matches]"));
         }
-        Ok(out.join("\n"))
+        Ok(truncate_output(&out.join("\n"), MAX_OUTPUT))
     }
 }
 
