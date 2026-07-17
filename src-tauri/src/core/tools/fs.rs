@@ -40,6 +40,15 @@ impl Tool for ReadFileTool {
     async fn execute(&self, ctx: &ToolContext, args_json: &str) -> Result<String> {
         let args: ReadFileArgs = serde_json::from_str(args_json)?;
         let path = resolve_in_workspace(&ctx.workspace_root, &args.path)?;
+        if let Ok(meta) = std::fs::metadata(&path) {
+            if meta.len() > MAX_FILE_READ {
+                return Err(Error::Tool(format!(
+                    "file too large ({} bytes, max {MAX_FILE_READ}): {} — try grep for targeted reads",
+                    meta.len(),
+                    path.display()
+                )));
+            }
+        }
         let bytes = std::fs::read(&path)
             .map_err(|e| Error::Tool(format!("cannot read {}: {e}", path.display())))?;
         if bytes.len() as u64 > MAX_FILE_READ {

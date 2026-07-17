@@ -63,6 +63,7 @@ pub async fn run(req: AgentRequest) -> AgentOutcome {
         {
             Ok(s) => s,
             Err(e) => {
+                let _ = req.events.send(AgentEvent::Error(e.to_string())).await;
                 return AgentOutcome {
                     produced,
                     error: Some(e),
