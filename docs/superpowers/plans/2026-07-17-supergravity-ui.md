@@ -31,7 +31,7 @@
 - Create: `ui/index.html`, `ui/style.css`, `ui/app.js` (placeholder shell)
 - Modify: `src-tauri/src/lib.rs`
 
-- [ ] **Step 1: Install the Tauri CLI (global, one-time)**
+- [x] **Step 1: Install the Tauri CLI (global, one-time)**
 
 ```bash
 cargo install tauri-cli --version "^2.0.0" --locked
@@ -39,7 +39,7 @@ cargo install tauri-cli --version "^2.0.0" --locked
 
 Verify: `cargo tauri --version` prints 2.x. (This compiles from source; allow 5-10 min. Use a long timeout.)
 
-- [ ] **Step 2: Add Tauri deps and the bin target**
+- [x] **Step 2: Add Tauri deps and the bin target**
 
 ```bash
 cd /b/Jetbrains/projects/kimislop/src-tauri
@@ -55,7 +55,7 @@ name = "supergravity"
 path = "src/main.rs"
 ```
 
-- [ ] **Step 3: `src-tauri/build.rs`**
+- [x] **Step 3: `src-tauri/build.rs`**
 
 ```rust
 fn main() {
@@ -63,7 +63,7 @@ fn main() {
 }
 ```
 
-- [ ] **Step 4: `src-tauri/tauri.conf.json`**
+- [x] **Step 4: `src-tauri/tauri.conf.json`**
 
 ```json
 {
@@ -103,7 +103,7 @@ fn main() {
 }
 ```
 
-- [ ] **Step 5: Generate icons**
+- [x] **Step 5: Generate icons**
 
 `assets/icon.png` exists at the repo root (a 256x256 PNG, committed). Run:
 
@@ -114,7 +114,7 @@ cargo tauri icon ../assets/icon.png
 
 Expected: `src-tauri/icons/` populated (32x32.png, 128x128.png, icon.ico, …).
 
-- [ ] **Step 6: `src-tauri/src/main.rs`**
+- [x] **Step 6: `src-tauri/src/main.rs`**
 
 ```rust
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -124,7 +124,7 @@ fn main() {
 }
 ```
 
-- [ ] **Step 7: `src-tauri/src/lib.rs` — add bridge module**
+- [x] **Step 7: `src-tauri/src/lib.rs` — add bridge module**
 
 Full content:
 
@@ -133,7 +133,7 @@ pub mod bridge;
 pub mod core;
 ```
 
-- [ ] **Step 8: `src-tauri/src/bridge/mod.rs` (minimal run())**
+- [x] **Step 8: `src-tauri/src/bridge/mod.rs` (minimal run())**
 
 ```rust
 pub fn run() {
@@ -143,7 +143,7 @@ pub fn run() {
 }
 ```
 
-- [ ] **Step 9: UI placeholder — `ui/index.html`**
+- [x] **Step 9: UI placeholder — `ui/index.html`**
 
 ```html
 <!DOCTYPE html>
@@ -213,7 +213,7 @@ pub fn run() {
 </html>
 ```
 
-- [ ] **Step 10: `ui/style.css` (dark theme skeleton — extended in U4)**
+- [x] **Step 10: `ui/style.css` (dark theme skeleton — extended in U4)**
 
 ```css
 :root {
@@ -322,14 +322,14 @@ button:hover, select:hover { border-color: var(--accent); }
 #settings-panel input { background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin: 4px 0; width: 100%; font: inherit; }
 ```
 
-- [ ] **Step 11: `ui/app.js` placeholder**
+- [x] **Step 11: `ui/app.js` placeholder**
 
 ```js
 // supergravity UI — placeholder; real logic lands in U4-U6.
 document.getElementById("chat-title").textContent = "supergravity — bridge not wired yet";
 ```
 
-- [ ] **Step 12: Verify build + launch smoke**
+- [x] **Step 12: Verify build + launch smoke**
 
 ```bash
 cd /b/Jetbrains/projects/kimislop/src-tauri
@@ -346,7 +346,7 @@ Expected: a "supergravity" window opens showing the sidebar + placeholder text. 
 
 Also re-run core tests to prove nothing broke: `cargo test` → all pass; `cargo clippy --all-targets -- -D warnings` → clean.
 
-- [ ] **Step 13: Commit**
+- [x] **Step 13: Commit**
 
 ```bash
 cd /b/Jetbrains/projects/kimislop
@@ -363,7 +363,7 @@ git commit -m "feat: tauri v2 scaffold with ui placeholder"
 - Create: `src-tauri/src/bridge/commands.rs`
 - Modify: `src-tauri/src/bridge/mod.rs` (wire state + invoke_handler + preset seeding)
 
-- [ ] **Step 1: Write the failing tests — `src-tauri/src/bridge/state.rs` containing ONLY**
+- [x] **Step 1: Write the failing tests — `src-tauri/src/bridge/state.rs` containing ONLY**
 
 ```rust
 use crate::core::approvals::ApprovalBroker;
@@ -419,7 +419,7 @@ impl AppState {
 }
 ```
 
-- [ ] **Step 2: `block()` helper + error mapping — `src-tauri/src/bridge/commands.rs` skeleton**
+- [x] **Step 2: `block()` helper + error mapping — `src-tauri/src/bridge/commands.rs` skeleton**
 
 ```rust
 use crate::core::error::Result;
@@ -437,7 +437,7 @@ pub fn estr(e: crate::core::error::Error) -> String {
 }
 ```
 
-- [ ] **Step 3: Write the failing tests — append to `src-tauri/src/bridge/commands.rs`**
+- [x] **Step 3: Write the failing tests — append to `src-tauri/src/bridge/commands.rs`**
 
 ```rust
 #[cfg(test)]
@@ -530,12 +530,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they fail**
+- [x] **Step 4: Run tests to verify they fail**
 
 Run: `cd /b/Jetbrains/projects/kimislop/src-tauri && cargo test bridge`
 Expected: compile errors — `add_workspace_impl` etc. not found.
 
-- [ ] **Step 5: Implement the commands — prepend to `src-tauri/src/bridge/commands.rs`**
+- [x] **Step 5: Implement the commands — prepend to `src-tauri/src/bridge/commands.rs`**
 
 ```rust
 use crate::bridge::state::AppState;
@@ -639,30 +639,41 @@ pub async fn upsert_provider_impl(state: &AppState, cfg: ProviderConfig) -> Resu
 }
 
 pub async fn delete_provider_impl(state: &AppState, id: String) -> Result<()> {
-    let _ = state.keys.delete(&id);
+    let k = state.keys.clone();
+    let kid = id.clone();
+    let _ = block(move || k.delete(&kid)).await;
     let s = state.store.clone();
     block(move || s.delete_provider(&id)).await
 }
 
 pub async fn set_api_key_impl(state: &AppState, provider_id: String, key: String) -> Result<()> {
-    state.keys.set(&provider_id, &key)?;
+    // Validate the provider exists BEFORE writing the keychain (no orphan entries).
     let mut cfg = {
         let s = state.store.clone();
         let pid = provider_id.clone();
         block(move || s.get_provider(&pid)).await?
     };
+    {
+        let k = state.keys.clone();
+        let pid = provider_id.clone();
+        block(move || k.set(&pid, &key)).await?;
+    }
     cfg.has_key = true;
     let s = state.store.clone();
     block(move || s.upsert_provider(&cfg)).await
 }
 
 pub async fn delete_api_key_impl(state: &AppState, provider_id: String) -> Result<()> {
-    state.keys.delete(&provider_id)?;
     let mut cfg = {
         let s = state.store.clone();
         let pid = provider_id.clone();
         block(move || s.get_provider(&pid)).await?
     };
+    {
+        let k = state.keys.clone();
+        let pid = provider_id.clone();
+        block(move || k.delete(&pid)).await?;
+    }
     cfg.has_key = false;
     let s = state.store.clone();
     block(move || s.upsert_provider(&cfg)).await
@@ -825,7 +836,7 @@ pub async fn set_ui_state(
 
 (All 19 wrappers follow the same one-line pattern: call the `*_impl` and `.map_err(estr)`.)
 
-- [ ] **Step 6: Wire everything in `src-tauri/src/bridge/mod.rs`**
+- [x] **Step 6: Wire everything in `src-tauri/src/bridge/mod.rs`**
 
 Full content:
 
@@ -887,12 +898,12 @@ pub fn run() {
 
 (`agent_runner` is Task U3 — create `src-tauri/src/bridge/agent_runner.rs` with placeholder `send_message`/`cancel_agent`/`resolve_approval` commands returning `Err("not implemented".into())` for now, so this task compiles.)
 
-- [ ] **Step 7: Run tests to verify they pass**
+- [x] **Step 7: Run tests to verify they pass**
 
 Run: `cd /b/Jetbrains/projects/kimislop/src-tauri && cargo test bridge`
 Expected: `test result: ok. 5 passed` (bridge tests); full suite all green; `cargo clippy --all-targets -- -D warnings` clean.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 cd /b/Jetbrains/projects/kimislop
