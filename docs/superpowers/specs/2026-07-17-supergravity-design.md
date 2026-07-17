@@ -244,12 +244,16 @@ Two-pane layout (approved option A), dark theme matching the Antigravity referen
 
 ## Event protocol (bridge → UI)
 
-`agent-event` payload:
+`agent-event` payload: `{"conversation_id": "…", "event": <AgentEvent>}`, where
+`AgentEvent` serializes adjacent-tagged as `{"kind": "<snake_case>", "data": …}`:
 
 ```json
-{ "conversation_id": "…", "kind": "text_delta|tool_proposed|approval_requested|
-  tool_finished|message_done|error|cancelled", "...": "kind-specific fields" }
+{ "conversation_id": "…", "event": { "kind": "text_delta", "data": "partial text" } }
 ```
+
+Kinds: `text_delta`, `tool_call_proposed`, `approval_requested`,
+`tool_call_finished`, `message_done`, `error`, `cancelled`. Struct-variant
+fields ride inside `data` (e.g. `{"kind":"approval_requested","data":{"request_id":"…","tool_call_id":"…","name":"run_shell","args_json":"…"}}`).
 
 Commands (invoke): `list_workspaces`, `add_workspace(path)`, `remove_workspace`,
 `list_conversations(workspace_id)`, `create_conversation`, `rename_conversation`,
