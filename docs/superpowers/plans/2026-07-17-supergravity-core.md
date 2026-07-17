@@ -5038,6 +5038,270 @@ git commit -m "chore(core): finalize module exports, clippy/fmt clean"
 
 ---
 
+### Task 17: Final review fixes (system prompt, AgentOutcome, shell errors, bridge-readiness)
+
+From the final whole-implementation review: three Critical spec gaps (missing system prompt; produced messages unpersistable on error; shell failures reported as success) plus bridge-readiness items.
+
+**Files:**
+- Modify: `src-tauri/src/core/agent.rs`, `tools/shell.rs`, `tools/fs.rs`, `tools/search.rs`, `store.rs`, `providers/mod.rs`, `types.rs`, `providers/anthropic.rs` (+ its test)
+
+- [ ] **Step 1: System prompt in the agent loop**
+
+In `agent.rs`, add:
+
+```rust
+fn system_prompt(workspace_root: &std::path::Path, mode: crate::core::types::ApprovalMode, tools: &[Box<dyn Tool>]) -> String {
+    let tool_names: Vec<String> = tools.iter().map(|t| t.spec().name).collect();
+    let mode_note = match mode {
+        crate::core::types::ApprovalMode::Manual => {
+            "File writes and shell commands require explicit user approval before executing."
+        }
+        crate::core::types::ApprovalMode::Auto => "You may write files and run shell commands without user approval.",
+    };
+    format!(
+        "You are Supergravity, a coding agent.\n\
+         Workspace root: {}\n\
+         Available tools: {}.\n\
+         Rules: keep all file access inside the workspace root; read before you modify; \
+         prefer small, targeted changes; when a tool returns an error, adapt or explain instead of retrying blindly.\n\
+         {}",
+        workspace_root.display(),
+        tool_names.join(", "),
+        mode_note
+    )
+}
+```
+
+In `run()`, replace `let mut messages = req.history.clone();` with:
+
+```rust
+    // System prompt is built per-run and NOT persisted to history.
+    let mut messages = Vec::with_capacity(req.history.len() + 1);
+    messages.push(Message::text(Role::System, system_prompt(&req.workspace_root, req.approvals.mode(), &req.tools)));
+    messages.extend(req.history.iter().cloned());
+```
+
+Test `system_prompt_prepended_not_persisted`: after a text-only run, `provider.calls.lock().unwrap()[0].1[0].role == Role::System` and `result.produced[0].role == Role::Assistant` (system prompt not in produced).
+
+- [ ] **Step 2: AgentOutcome — persist partial runs on error/cancel**
+
+In `agent.rs`:
+
+```rust
+pub struct AgentOutcome {
+    /// Messages produced during the run — persist these even when `error` is Some.
+    pub produced: Vec<Message>,
+    /// The failure that ended the run, if any.
+    pub error: Option<Error>,
+}
+```
+
+Change `run` to return `AgentOutcome` (not `Result<Vec<Message>>`). Every `return Err(e)` becomes `return AgentOutcome { produced, error: Some(e) }`; success becomes `AgentOutcome { produced, error: None }`. Update the 13 agent tests: `result.unwrap()` → `result.produced`; `result.is_err()` → `result.error.is_some()`; cancelled → `matches!(result.error, Some(Error::Cancelled))`. (Note: with Step 1, produced[0] is now the first assistant message — the system prompt is excluded from produced, so existing produced assertions are unaffected.)
+
+- [ ] **Step 3: Shell failures are errors**
+
+In `tools/shell.rs`, restructure the output handling:
+
+```rust
+        match tokio::time::timeout(timeout, child.wait_with_output()).await {
+            Ok(Ok(output)) => {
+                let mut out = String::new();
+                out.push_str(&String::from_utf8_lossy(&output.stdout));
+                if !output.stderr.is_empty() {
+                    if !out.is_empty() {
+                        out.push('\n');
+                    }
+                    out.push_str("[stderr]\n");
+                    out.push_str(&String::from_utf8_lossy(&output.stderr));
+                }
+                let truncated = truncate_output(&out, MAX_OUTPUT);
+                if !output.status.success() {
+                    // Non-zero exit is a tool failure — the model sees an error result.
+                    return Err(Error::Tool(format!("{}\n[exit code {}]", truncated, output.status.code().unwrap_or(-1))));
+                }
+                if truncated.is_empty() {
+                    Ok("[no output]".to_string())
+                } else {
+                    Ok(truncated)
+                }
+            }
+            Ok(Err(e)) => Err(e.into()),
+            Err(_) => Err(Error::Tool(format!(
+                "command timed out after {}s and was killed: {}",
+                timeout.as_secs(),
+                args.command
+            ))),
+        }
+```
+
+Update the two tests to expect errors: `reports_nonzero_exit` → `execute(...).await.unwrap_err()` contains "exit code"; `times_out_and_kills` → `unwrap_err()` contains "timed out".
+
+- [ ] **Step 4: read_file size guard**
+
+In `tools/fs.rs`, add `const MAX_FILE_READ: u64 = 10 * 1024 * 1024;` and after reading `bytes`:
+
+```rust
+        if bytes.len() as u64 > MAX_FILE_READ {
+            return Err(Error::Tool(format!(
+                "file too large ({} bytes, max {MAX_FILE_READ}): {} — try grep for targeted reads",
+                bytes.len(),
+                path.display()
+            )));
+        }
+```
+
+Test `read_file_too_large_is_error`: write a >10MB file, expect error containing "too large".
+
+- [ ] **Step 5: Store bridge-readiness methods**
+
+In `store.rs` add:
+
+```rust
+    pub fn get_workspace(&self, id: &str) -> Result<WorkspaceRow> {
+        let conn = self.conn.lock().unwrap();
+        Ok(conn.query_row(
+            "SELECT id, name, path, created_at FROM workspaces WHERE id = ?1",
+            params![id],
+            |r| Ok(WorkspaceRow { id: r.get(0)?, name: r.get(1)?, path: r.get(2)?, created_at: r.get(3)? }),
+        )?)
+    }
+
+    pub fn get_provider(&self, id: &str) -> Result<ProviderConfig> {
+        self.list_providers()?
+            .into_iter()
+            .find(|p| p.id == id)
+            .ok_or_else(|| crate::core::error::Error::Config(format!("unknown provider: {id}")))
+    }
+
+    pub fn update_conversation_model(&self, id: &str, provider_id: &str, model: &str) -> Result<()> {
+        self.conn.lock().unwrap().execute(
+            "UPDATE conversations SET provider_id = ?1, model = ?2, updated_at = ?3 WHERE id = ?4",
+            params![provider_id, model, now_ts(), id],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_conversation(&self, id: &str) -> Result<()> {
+        self.conn.lock().unwrap().execute("DELETE FROM conversations WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+```
+
+Also in `Store::open`, before `Connection::open`: create the parent dir:
+
+```rust
+    pub fn open(path: &Path) -> Result<Store> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let conn = Connection::open(path)?;
+        ...
+```
+
+Tests: `get_workspace_and_provider_by_id`, `update_conversation_model_roundtrip`, `delete_conversation_removes_it`, `open_creates_parent_dirs` (tempdir + nested nonexistent path).
+
+- [ ] **Step 6: Provider presets + compat base_url requirement**
+
+In `providers/mod.rs` add:
+
+```rust
+/// First-run provider presets: sensible defaults with starter model lists.
+/// All user-editable later; model names drift — treat as starting points.
+pub fn presets() -> Vec<ProviderConfig> {
+    vec![
+        ProviderConfig { id: "openai".into(), label: "OpenAI".into(), kind: ProviderKind::OpenAi, base_url: None, has_key: false, models: vec!["gpt-5".into(), "gpt-5-mini".into()], extra_headers: vec![] },
+        ProviderConfig { id: "anthropic".into(), label: "Anthropic".into(), kind: ProviderKind::Anthropic, base_url: None, has_key: false, models: vec!["claude-sonnet-4-5".into(), "claude-opus-4-5".into()], extra_headers: vec![] },
+        ProviderConfig { id: "gemini".into(), label: "Gemini".into(), kind: ProviderKind::Gemini, base_url: None, has_key: false, models: vec!["gemini-2.5-pro".into(), "gemini-2.5-flash".into()], extra_headers: vec![] },
+        ProviderConfig { id: "ollama".into(), label: "Ollama (local)".into(), kind: ProviderKind::Ollama, base_url: None, has_key: false, models: vec![], extra_headers: vec![] },
+    ]
+}
+```
+
+In `build_provider`, split the compat arm — it REQUIRES base_url:
+
+```rust
+        ProviderKind::OpenAi => Ok(Box::new(openai::OpenAiProvider::new(
+            cfg.base_url.as_deref(),
+            api_key,
+            cfg.extra_headers.clone(),
+        ))),
+        ProviderKind::OpenAiCompatible => {
+            let base = cfg
+                .base_url
+                .as_deref()
+                .ok_or_else(|| Error::Config(format!("provider '{}' requires a base_url", cfg.id)))?;
+            Ok(Box::new(openai::OpenAiProvider::new(Some(base), api_key, cfg.extra_headers.clone())))
+        }
+```
+
+Update `factory_builds_all_kinds`: the OpenAiCompatible cfg needs `base_url: Some(...)`. New tests: `presets_cover_four_kinds` and `factory_rejects_compat_without_base_url`.
+
+- [ ] **Step 7: AgentEvent Serialize + tool_call_id naming**
+
+In `types.rs`:
+
+```rust
+/// One event from the agent loop toward the UI.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(tag = "kind", content = "data", rename_all = "snake_case")]
+pub enum AgentEvent {
+    TextDelta(String),
+    ToolCallProposed { tool_call_id: String, name: String, args_json: String },
+    ApprovalRequested { request_id: String, tool_call_id: String, name: String, args_json: String },
+    ToolCallFinished { tool_call_id: String, ok: bool, summary: String },
+    MessageDone,
+    Error(String),
+    Cancelled,
+}
+```
+
+(`ToolCallProposed.id` renamed to `tool_call_id` for consistency.) Update `agent.rs` emissions and the one test asserting `ToolCallProposed { id: ... }`. New type test `agent_event_serde_shape`: TextDelta("hi") → `{"kind":"text_delta","data":"hi"}`; ToolCallFinished → `{"kind":"tool_call_finished","data":{"tool_call_id":"c","ok":true,"summary":"s"}}`.
+
+- [ ] **Step 8: ToolCallFinished on approval-channel error**
+
+In `agent.rs`, the `Err(e)` approval branch currently pushes a result with no finish event — add the emit first:
+
+```rust
+                            Err(e) => {
+                                let _ = req
+                                    .events
+                                    .send(AgentEvent::ToolCallFinished {
+                                        tool_call_id: id.clone(),
+                                        ok: false,
+                                        summary: format!("approval error: {e}"),
+                                    })
+                                    .await;
+                                results.push(ContentPart::ToolResult {
+                                    tool_call_id: id,
+                                    content: format!("approval error: {e}"),
+                                    is_error: true,
+                                });
+                                continue;
+                            }
+```
+
+- [ ] **Step 9: grep output truncation**
+
+In `tools/search.rs`: import `truncate_output` from `super`, add `const MAX_OUTPUT: usize = 50 * 1024;`, and return `Ok(truncate_output(&out.join("\n"), MAX_OUTPUT))` (replacing `Ok(out.join("\n"))` in GrepTool).
+
+- [ ] **Step 10: Anthropic max_tokens typo**
+
+In `providers/anthropic.rs`: `DEFAULT_MAX_TOKENS: u32 = 8192;` and update the test asserting `8096` to `8192`.
+
+- [ ] **Step 11: Verify and commit**
+
+Run: `cd /b/Jetbrains/projects/kimislop/src-tauri && cargo test` → all pass (≈135)
+Run: `cargo clippy --all-targets -- -D warnings` → clean
+Run: `cargo fmt`
+
+```bash
+cd /b/Jetbrains/projects/kimislop
+git add src-tauri
+git commit -m "feat(core): system prompt, AgentOutcome, shell error semantics, bridge-readiness (final review)"
+```
+
+---
+
 ## Done criteria for this plan
 
 - `cargo test` in `src-tauri/`: all green
