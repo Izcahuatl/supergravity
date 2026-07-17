@@ -1,3 +1,4 @@
+pub mod openai;
 pub mod http;
 pub mod mock;
 pub mod sse;
