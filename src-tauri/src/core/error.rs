@@ -30,7 +30,10 @@ mod tests {
 
     #[test]
     fn display_provider_error() {
-        let e = Error::Provider { status: 401, body: "bad key".into() };
+        let e = Error::Provider {
+            status: 401,
+            body: "bad key".into(),
+        };
         let s = e.to_string();
         assert!(s.contains("401"), "{s}");
         assert!(s.contains("bad key"), "{s}");

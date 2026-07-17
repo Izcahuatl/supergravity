@@ -12,9 +12,19 @@ pub enum Role {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContentPart {
-    Text { text: String },
-    ToolCall { id: String, name: String, args_json: String },
-    ToolResult { tool_call_id: String, content: String, is_error: bool },
+    Text {
+        text: String,
+    },
+    ToolCall {
+        id: String,
+        name: String,
+        args_json: String,
+    },
+    ToolResult {
+        tool_call_id: String,
+        content: String,
+        is_error: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -25,7 +35,10 @@ pub struct Message {
 
 impl Message {
     pub fn text(role: Role, text: impl Into<String>) -> Self {
-        Message { role, parts: vec![ContentPart::Text { text: text.into() }] }
+        Message {
+            role,
+            parts: vec![ContentPart::Text { text: text.into() }],
+        }
     }
 }
 
@@ -40,8 +53,15 @@ pub struct ToolSpec {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ChatEvent {
     TextDelta(String),
-    ToolCall { id: String, name: String, args_json: String },
-    Usage { input_tokens: u64, output_tokens: u64 },
+    ToolCall {
+        id: String,
+        name: String,
+        args_json: String,
+    },
+    Usage {
+        input_tokens: u64,
+        output_tokens: u64,
+    },
     /// Server-sent error frame (Anthropic `error` events, OpenAI error payloads).
     Error(String),
     Done,
@@ -58,9 +78,22 @@ pub enum ApprovalMode {
 #[derive(Debug, Clone, PartialEq)]
 pub enum AgentEvent {
     TextDelta(String),
-    ToolCallProposed { id: String, name: String, args_json: String },
-    ApprovalRequested { request_id: String, tool_call_id: String, name: String, args_json: String },
-    ToolCallFinished { tool_call_id: String, ok: bool, summary: String },
+    ToolCallProposed {
+        id: String,
+        name: String,
+        args_json: String,
+    },
+    ApprovalRequested {
+        request_id: String,
+        tool_call_id: String,
+        name: String,
+        args_json: String,
+    },
+    ToolCallFinished {
+        tool_call_id: String,
+        ok: bool,
+        summary: String,
+    },
     MessageDone,
     Error(String),
     Cancelled,
@@ -95,9 +128,19 @@ mod tests {
     #[test]
     fn content_part_serde_roundtrip() {
         let parts = vec![
-            ContentPart::Text { text: "hello".into() },
-            ContentPart::ToolCall { id: "c1".into(), name: "read_file".into(), args_json: "{}".into() },
-            ContentPart::ToolResult { tool_call_id: "c1".into(), content: "data".into(), is_error: false },
+            ContentPart::Text {
+                text: "hello".into(),
+            },
+            ContentPart::ToolCall {
+                id: "c1".into(),
+                name: "read_file".into(),
+                args_json: "{}".into(),
+            },
+            ContentPart::ToolResult {
+                tool_call_id: "c1".into(),
+                content: "data".into(),
+                is_error: false,
+            },
         ];
         for p in parts {
             let json = serde_json::to_string(&p).unwrap();
@@ -114,18 +157,30 @@ mod tests {
 
     #[test]
     fn role_serializes_lowercase() {
-        assert_eq!(serde_json::to_string(&Role::Assistant).unwrap(), "\"assistant\"");
+        assert_eq!(
+            serde_json::to_string(&Role::Assistant).unwrap(),
+            "\"assistant\""
+        );
     }
 
     #[test]
     fn approval_mode_snake_case() {
-        assert_eq!(serde_json::to_string(&ApprovalMode::Manual).unwrap(), "\"manual\"");
-        assert_eq!(serde_json::to_string(&ApprovalMode::Auto).unwrap(), "\"auto\"");
+        assert_eq!(
+            serde_json::to_string(&ApprovalMode::Manual).unwrap(),
+            "\"manual\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ApprovalMode::Auto).unwrap(),
+            "\"auto\""
+        );
     }
 
     #[test]
     fn provider_kind_snake_case() {
-        assert_eq!(serde_json::to_string(&ProviderKind::OpenAiCompatible).unwrap(), "\"open_ai_compatible\"");
+        assert_eq!(
+            serde_json::to_string(&ProviderKind::OpenAiCompatible).unwrap(),
+            "\"open_ai_compatible\""
+        );
     }
 
     #[test]

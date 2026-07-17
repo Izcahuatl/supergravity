@@ -19,7 +19,11 @@ pub struct ApprovalBroker {
 
 impl ApprovalBroker {
     pub fn new(mode: ApprovalMode, events: mpsc::Sender<AgentEvent>) -> Self {
-        ApprovalBroker { mode: RwLock::new(mode), pending: Mutex::new(HashMap::new()), events }
+        ApprovalBroker {
+            mode: RwLock::new(mode),
+            pending: Mutex::new(HashMap::new()),
+            events,
+        }
     }
 
     pub fn mode(&self) -> ApprovalMode {
@@ -89,10 +93,18 @@ mod tests {
         let (tx, mut rx) = mpsc::channel(8);
         let broker = std::sync::Arc::new(ApprovalBroker::new(ApprovalMode::Manual, tx));
         let b2 = broker.clone();
-        let handle = tokio::spawn(async move { b2.check("call1", "run_shell", "{\"command\":\"ls\"}").await });
+        let handle =
+            tokio::spawn(
+                async move { b2.check("call1", "run_shell", "{\"command\":\"ls\"}").await },
+            );
         let ev = rx.recv().await.unwrap();
         let request_id = match ev {
-            AgentEvent::ApprovalRequested { request_id, tool_call_id, name, .. } => {
+            AgentEvent::ApprovalRequested {
+                request_id,
+                tool_call_id,
+                name,
+                ..
+            } => {
                 assert_eq!(tool_call_id, "call1");
                 assert_eq!(name, "run_shell");
                 request_id

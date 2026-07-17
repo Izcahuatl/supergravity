@@ -19,7 +19,10 @@ pub struct MockProvider {
 
 impl MockProvider {
     pub fn new(script: Vec<Vec<Result<ChatEvent>>>) -> Self {
-        MockProvider { calls: Mutex::new(vec![]), script: Mutex::new(script.into()) }
+        MockProvider {
+            calls: Mutex::new(vec![]),
+            script: Mutex::new(script.into()),
+        }
     }
 }
 
@@ -31,13 +34,19 @@ impl Provider for MockProvider {
         messages: &[Message],
         tools: &[ToolSpec],
     ) -> Result<Pin<Box<dyn Stream<Item = Result<ChatEvent>> + Send>>> {
-        self.calls.lock().unwrap().push((model.to_string(), messages.to_vec(), tools.to_vec()));
+        self.calls
+            .lock()
+            .unwrap()
+            .push((model.to_string(), messages.to_vec(), tools.to_vec()));
         let events = self
             .script
             .lock()
             .unwrap()
             .pop_front()
-            .ok_or_else(|| Error::Provider { status: 0, body: "mock script exhausted".into() })?;
+            .ok_or_else(|| Error::Provider {
+                status: 0,
+                body: "mock script exhausted".into(),
+            })?;
         Ok(Box::pin(futures::stream::iter(events)))
     }
 }
@@ -52,7 +61,10 @@ mod tests {
         vec![vec![
             Ok(ChatEvent::TextDelta("he".into())),
             Ok(ChatEvent::TextDelta("llo".into())),
-            Ok(ChatEvent::Usage { input_tokens: 3, output_tokens: 2 }),
+            Ok(ChatEvent::Usage {
+                input_tokens: 3,
+                output_tokens: 2,
+            }),
             Ok(ChatEvent::Done),
         ]]
     }
@@ -71,7 +83,10 @@ mod tests {
             vec![
                 ChatEvent::TextDelta("he".into()),
                 ChatEvent::TextDelta("llo".into()),
-                ChatEvent::Usage { input_tokens: 3, output_tokens: 2 },
+                ChatEvent::Usage {
+                    input_tokens: 3,
+                    output_tokens: 2
+                },
                 ChatEvent::Done,
             ]
         );

@@ -19,10 +19,17 @@ pub struct OpenAiProvider {
 }
 
 impl OpenAiProvider {
-    pub fn new(base_url: Option<&str>, api_key: Option<String>, extra_headers: Vec<(String, String)>) -> Self {
+    pub fn new(
+        base_url: Option<&str>,
+        api_key: Option<String>,
+        extra_headers: Vec<(String, String)>,
+    ) -> Self {
         OpenAiProvider {
             client: reqwest::Client::new(),
-            base_url: base_url.unwrap_or("https://api.openai.com/v1").trim_end_matches('/').to_string(),
+            base_url: base_url
+                .unwrap_or("https://api.openai.com/v1")
+                .trim_end_matches('/')
+                .to_string(),
             api_key,
             extra_headers,
         }
@@ -49,12 +56,20 @@ fn openai_messages(messages: &[Message]) -> Vec<Value> {
             Role::Assistant => {
                 let text = concat_text(m);
                 let mut msg = json!({"role": "assistant"});
-                msg["content"] = if text.is_empty() { Value::Null } else { json!(text) };
+                msg["content"] = if text.is_empty() {
+                    Value::Null
+                } else {
+                    json!(text)
+                };
                 let calls: Vec<Value> = m
                     .parts
                     .iter()
                     .filter_map(|p| match p {
-                        ContentPart::ToolCall { id, name, args_json } => Some(json!({
+                        ContentPart::ToolCall {
+                            id,
+                            name,
+                            args_json,
+                        } => Some(json!({
                             "id": id,
                             "type": "function",
                             "function": {"name": name, "arguments": args_json}
@@ -69,7 +84,12 @@ fn openai_messages(messages: &[Message]) -> Vec<Value> {
             }
             Role::Tool => {
                 for p in &m.parts {
-                    if let ContentPart::ToolResult { tool_call_id, content, .. } = p {
+                    if let ContentPart::ToolResult {
+                        tool_call_id,
+                        content,
+                        ..
+                    } = p
+                    {
                         out.push(json!({"role": "tool", "tool_call_id": tool_call_id, "content": content}));
                     }
                 }
@@ -167,7 +187,11 @@ impl OpenAiAssembler {
                 }
                 if choice["finish_reason"].as_str() == Some("tool_calls") {
                     for (_, buf) in std::mem::take(&mut self.tool_calls) {
-                        out.push(ChatEvent::ToolCall { id: buf.id, name: buf.name, args_json: buf.args });
+                        out.push(ChatEvent::ToolCall {
+                            id: buf.id,
+                            name: buf.name,
+                            args_json: buf.args,
+                        });
                     }
                 }
             }
@@ -181,7 +205,11 @@ impl OpenAiAssembler {
     pub fn finish(&mut self) -> Vec<ChatEvent> {
         let mut out = Vec::new();
         for (_, buf) in std::mem::take(&mut self.tool_calls) {
-            out.push(ChatEvent::ToolCall { id: buf.id, name: buf.name, args_json: buf.args });
+            out.push(ChatEvent::ToolCall {
+                id: buf.id,
+                name: buf.name,
+                args_json: buf.args,
+            });
         }
         if !self.done_emitted {
             self.done_emitted = true;
@@ -200,7 +228,10 @@ impl Provider for OpenAiProvider {
         tools: &[ToolSpec],
     ) -> Result<Pin<Box<dyn Stream<Item = Result<ChatEvent>> + Send>>> {
         let url = format!("{}/chat/completions", self.base_url);
-        let mut req = self.client.post(url).json(&build_body(model, messages, tools));
+        let mut req = self
+            .client
+            .post(url)
+            .json(&build_body(model, messages, tools));
         if let Some(key) = &self.api_key {
             req = req.bearer_auth(key);
         }
@@ -249,7 +280,10 @@ mod tests {
         let body = build_body("gpt-5", &msgs, &tools);
         assert_eq!(body["model"], "gpt-5");
         assert_eq!(body["stream"], true);
-        assert_eq!(body["messages"], serde_json::json!([{"role": "user", "content": "hi"}]));
+        assert_eq!(
+            body["messages"],
+            serde_json::json!([{"role": "user", "content": "hi"}])
+        );
         assert_eq!(
             body["tools"],
             serde_json::json!([{
@@ -271,13 +305,23 @@ mod tests {
             Message {
                 role: Role::Assistant,
                 parts: vec![
-                    ContentPart::Text { text: "reading".into() },
-                    ContentPart::ToolCall { id: "call_1".into(), name: "read_file".into(), args_json: "{\"path\":\"x\"}".into() },
+                    ContentPart::Text {
+                        text: "reading".into(),
+                    },
+                    ContentPart::ToolCall {
+                        id: "call_1".into(),
+                        name: "read_file".into(),
+                        args_json: "{\"path\":\"x\"}".into(),
+                    },
                 ],
             },
             Message {
                 role: Role::Tool,
-                parts: vec![ContentPart::ToolResult { tool_call_id: "call_1".into(), content: "file body".into(), is_error: false }],
+                parts: vec![ContentPart::ToolResult {
+                    tool_call_id: "call_1".into(),
+                    content: "file body".into(),
+                    is_error: false,
+                }],
             },
         ];
         let body = build_body("m", &msgs, &[]);
@@ -304,7 +348,11 @@ mod tests {
     fn assistant_without_text_has_null_content() {
         let msgs = vec![Message {
             role: Role::Assistant,
-            parts: vec![ContentPart::ToolCall { id: "c".into(), name: "n".into(), args_json: "{}".into() }],
+            parts: vec![ContentPart::ToolCall {
+                id: "c".into(),
+                name: "n".into(),
+                args_json: "{}".into(),
+            }],
         }];
         let body = build_body("m", &msgs, &[]);
         assert_eq!(body["messages"][0]["content"], serde_json::Value::Null);
@@ -335,16 +383,30 @@ mod tests {
         let evs = a.push_data(r#"{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}"#);
         assert_eq!(
             evs,
-            vec![ChatEvent::ToolCall { id: "call_9".into(), name: "read_file".into(), args_json: "{\"path\":\"x\"}".into() }]
+            vec![ChatEvent::ToolCall {
+                id: "call_9".into(),
+                name: "read_file".into(),
+                args_json: "{\"path\":\"x\"}".into()
+            }]
         );
     }
 
     #[test]
     fn assembler_usage_and_malformed_tolerance() {
         let mut a = OpenAiAssembler::default();
-        let evs = a.push_data(r#"{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":4}}"#);
-        assert_eq!(evs, vec![ChatEvent::Usage { input_tokens: 10, output_tokens: 4 }]);
-        assert!(a.push_data("{not json").is_empty(), "malformed chunks are skipped");
+        let evs =
+            a.push_data(r#"{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":4}}"#);
+        assert_eq!(
+            evs,
+            vec![ChatEvent::Usage {
+                input_tokens: 10,
+                output_tokens: 4
+            }]
+        );
+        assert!(
+            a.push_data("{not json").is_empty(),
+            "malformed chunks are skipped"
+        );
     }
 
     #[test]
@@ -364,7 +426,11 @@ mod tests {
         assert_eq!(
             evs,
             vec![
-                ChatEvent::ToolCall { id: "call_1".into(), name: "read_file".into(), args_json: "{}".into() },
+                ChatEvent::ToolCall {
+                    id: "call_1".into(),
+                    name: "read_file".into(),
+                    args_json: "{}".into()
+                },
                 ChatEvent::Done,
             ]
         );

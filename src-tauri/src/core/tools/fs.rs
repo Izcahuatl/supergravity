@@ -101,7 +101,10 @@ impl Tool for WriteFileTool {
             return Err(Error::Tool(format!("unknown write mode: {mode}")));
         }
         if mode == "create" && path.exists() {
-            return Err(Error::Tool(format!("file already exists: {}", path.display())));
+            return Err(Error::Tool(format!(
+                "file already exists: {}",
+                path.display()
+            )));
         }
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -110,12 +113,19 @@ impl Tool for WriteFileTool {
             "create" | "overwrite" => std::fs::write(&path, &args.content)?,
             "append" => {
                 use std::io::Write;
-                let mut f = std::fs::OpenOptions::new().create(true).append(true).open(&path)?;
+                let mut f = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&path)?;
                 f.write_all(args.content.as_bytes())?;
             }
             _ => unreachable!(),
         }
-        Ok(format!("wrote {} bytes to {}", args.content.len(), path.display()))
+        Ok(format!(
+            "wrote {} bytes to {}",
+            args.content.len(),
+            path.display()
+        ))
     }
 }
 
@@ -132,7 +142,8 @@ impl Tool for ListDirTool {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "list_dir".into(),
-            description: "List files and directories under a workspace path, indented by depth.".into(),
+            description: "List files and directories under a workspace path, indented by depth."
+                .into(),
             params_schema: json!({
                 "type": "object",
                 "properties": {
@@ -190,7 +201,9 @@ mod tests {
     fn ctx() -> (tempfile::TempDir, ToolContext) {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().to_path_buf();
-        let ctx = ToolContext { workspace_root: root.clone() };
+        let ctx = ToolContext {
+            workspace_root: root.clone(),
+        };
         std::fs::create_dir_all(root.join("src")).unwrap();
         std::fs::write(root.join("src/a.txt"), "line1\nline2\nline3\nline4\n").unwrap();
         std::fs::write(root.join("top.txt"), "top\n").unwrap();
@@ -200,14 +213,20 @@ mod tests {
     #[tokio::test]
     async fn read_file_full() {
         let (_d, ctx) = ctx();
-        let out = ReadFileTool.execute(&ctx, r#"{"path": "src/a.txt"}"#).await.unwrap();
+        let out = ReadFileTool
+            .execute(&ctx, r#"{"path": "src/a.txt"}"#)
+            .await
+            .unwrap();
         assert_eq!(out, "line1\nline2\nline3\nline4\n");
     }
 
     #[tokio::test]
     async fn read_file_offset_limit() {
         let (_d, ctx) = ctx();
-        let out = ReadFileTool.execute(&ctx, r#"{"path": "src/a.txt", "offset": 2, "limit": 2}"#).await.unwrap();
+        let out = ReadFileTool
+            .execute(&ctx, r#"{"path": "src/a.txt", "offset": 2, "limit": 2}"#)
+            .await
+            .unwrap();
         assert!(out.starts_with("line2\nline3"), "{out}");
         assert!(out.contains("more lines"), "{out}");
     }
@@ -215,33 +234,72 @@ mod tests {
     #[tokio::test]
     async fn read_file_missing_is_error() {
         let (_d, ctx) = ctx();
-        assert!(ReadFileTool.execute(&ctx, r#"{"path": "nope.txt"}"#).await.is_err());
+        assert!(ReadFileTool
+            .execute(&ctx, r#"{"path": "nope.txt"}"#)
+            .await
+            .is_err());
     }
 
     #[tokio::test]
     async fn read_file_escape_rejected() {
         let (_d, ctx) = ctx();
-        assert!(ReadFileTool.execute(&ctx, r#"{"path": "../outside.txt"}"#).await.is_err());
+        assert!(ReadFileTool
+            .execute(&ctx, r#"{"path": "../outside.txt"}"#)
+            .await
+            .is_err());
     }
 
     #[tokio::test]
     async fn write_file_create_and_overwrite() {
         let (_d, ctx) = ctx();
-        let out = WriteFileTool.execute(&ctx, r#"{"path": "new/b.txt", "content": "hello", "mode": "create"}"#).await.unwrap();
+        let out = WriteFileTool
+            .execute(
+                &ctx,
+                r#"{"path": "new/b.txt", "content": "hello", "mode": "create"}"#,
+            )
+            .await
+            .unwrap();
         assert!(out.contains("5 bytes"), "{out}");
-        assert_eq!(std::fs::read_to_string(ctx.workspace_root.join("new/b.txt")).unwrap(), "hello");
+        assert_eq!(
+            std::fs::read_to_string(ctx.workspace_root.join("new/b.txt")).unwrap(),
+            "hello"
+        );
         // create fails when file exists
-        assert!(WriteFileTool.execute(&ctx, r#"{"path": "new/b.txt", "content": "x", "mode": "create"}"#).await.is_err());
+        assert!(WriteFileTool
+            .execute(
+                &ctx,
+                r#"{"path": "new/b.txt", "content": "x", "mode": "create"}"#
+            )
+            .await
+            .is_err());
         // overwrite replaces
-        WriteFileTool.execute(&ctx, r#"{"path": "new/b.txt", "content": "bye", "mode": "overwrite"}"#).await.unwrap();
-        assert_eq!(std::fs::read_to_string(ctx.workspace_root.join("new/b.txt")).unwrap(), "bye");
+        WriteFileTool
+            .execute(
+                &ctx,
+                r#"{"path": "new/b.txt", "content": "bye", "mode": "overwrite"}"#,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(ctx.workspace_root.join("new/b.txt")).unwrap(),
+            "bye"
+        );
     }
 
     #[tokio::test]
     async fn write_file_append() {
         let (_d, ctx) = ctx();
-        WriteFileTool.execute(&ctx, r#"{"path": "top.txt", "content": "more\n", "mode": "append"}"#).await.unwrap();
-        assert_eq!(std::fs::read_to_string(ctx.workspace_root.join("top.txt")).unwrap(), "top\nmore\n");
+        WriteFileTool
+            .execute(
+                &ctx,
+                r#"{"path": "top.txt", "content": "more\n", "mode": "append"}"#,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(ctx.workspace_root.join("top.txt")).unwrap(),
+            "top\nmore\n"
+        );
     }
 
     #[tokio::test]
@@ -254,31 +312,52 @@ mod tests {
     #[tokio::test]
     async fn list_dir_depth() {
         let (_d, ctx) = ctx();
-        let out = ListDirTool.execute(&ctx, r#"{"path": ".", "depth": 2}"#).await.unwrap();
+        let out = ListDirTool
+            .execute(&ctx, r#"{"path": ".", "depth": 2}"#)
+            .await
+            .unwrap();
         assert!(out.contains("src/"), "{out}");
         assert!(out.contains("a.txt"), "{out}");
         assert!(out.contains("top.txt"), "{out}");
-        let shallow = ListDirTool.execute(&ctx, r#"{"path": ".", "depth": 1}"#).await.unwrap();
+        let shallow = ListDirTool
+            .execute(&ctx, r#"{"path": ".", "depth": 1}"#)
+            .await
+            .unwrap();
         assert!(!shallow.contains("a.txt"), "{shallow}");
     }
 
     #[tokio::test]
     async fn read_file_offset_past_eof() {
         let (_d, ctx) = ctx();
-        let out = ReadFileTool.execute(&ctx, r#"{"path": "src/a.txt", "offset": 99}"#).await.unwrap();
+        let out = ReadFileTool
+            .execute(&ctx, r#"{"path": "src/a.txt", "offset": 99}"#)
+            .await
+            .unwrap();
         assert!(out.contains("past end of file"), "{out}");
     }
 
     #[tokio::test]
     async fn write_file_unknown_mode_has_no_side_effects() {
         let (_d, ctx) = ctx();
-        assert!(WriteFileTool.execute(&ctx, r#"{"path": "new2/b.txt", "content": "x", "mode": "bogus"}"#).await.is_err());
-        assert!(!ctx.workspace_root.join("new2").exists(), "no dirs created on invalid mode");
+        assert!(WriteFileTool
+            .execute(
+                &ctx,
+                r#"{"path": "new2/b.txt", "content": "x", "mode": "bogus"}"#
+            )
+            .await
+            .is_err());
+        assert!(
+            !ctx.workspace_root.join("new2").exists(),
+            "no dirs created on invalid mode"
+        );
     }
 
     #[tokio::test]
     async fn list_dir_on_file_is_error() {
         let (_d, ctx) = ctx();
-        assert!(ListDirTool.execute(&ctx, r#"{"path": "top.txt"}"#).await.is_err());
+        assert!(ListDirTool
+            .execute(&ctx, r#"{"path": "top.txt"}"#)
+            .await
+            .is_err());
     }
 }

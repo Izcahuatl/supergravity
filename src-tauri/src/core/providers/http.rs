@@ -17,15 +17,24 @@ impl Utf8Buf {
     pub(crate) fn push(&mut self, chunk: &[u8]) -> Option<String> {
         self.buf.extend_from_slice(chunk);
         let (emit, drain) = match std::str::from_utf8(&self.buf) {
-            Ok(_) => (String::from_utf8_lossy(&self.buf).into_owned(), self.buf.len()),
+            Ok(_) => (
+                String::from_utf8_lossy(&self.buf).into_owned(),
+                self.buf.len(),
+            ),
             Err(e) => {
                 let valid = e.valid_up_to();
                 if e.error_len().is_some() {
                     // genuinely invalid byte(s): lossy-emit everything, start over
-                    (String::from_utf8_lossy(&self.buf).into_owned(), self.buf.len())
+                    (
+                        String::from_utf8_lossy(&self.buf).into_owned(),
+                        self.buf.len(),
+                    )
                 } else {
                     // incomplete trailing sequence: emit the valid prefix, keep the rest
-                    (String::from_utf8_lossy(&self.buf[..valid]).into_owned(), valid)
+                    (
+                        String::from_utf8_lossy(&self.buf[..valid]).into_owned(),
+                        valid,
+                    )
                 }
             }
         };
@@ -61,12 +70,18 @@ pub async fn post_stream(
 
     let resp = tokio::time::timeout(CONNECT_TIMEOUT, req.send())
         .await
-        .map_err(|_| Error::Provider { status: 0, body: "connect timeout (30s)".into() })??;
+        .map_err(|_| Error::Provider {
+            status: 0,
+            body: "connect timeout (30s)".into(),
+        })??;
     let status = resp.status();
     if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
         let body: String = body.chars().take(500).collect();
-        return Err(Error::Provider { status: status.as_u16(), body });
+        return Err(Error::Provider {
+            status: status.as_u16(),
+            body,
+        });
     }
     let bytes = resp.bytes_stream();
     let stream = async_stream::try_stream! {

@@ -20,7 +20,8 @@ pub struct OsKeyStore;
 
 impl KeyStore for OsKeyStore {
     fn get(&self, provider_id: &str) -> Result<Option<String>> {
-        let entry = keyring::Entry::new(KEYRING_SERVICE, provider_id).map_err(|e| Error::Config(e.to_string()))?;
+        let entry = keyring::Entry::new(KEYRING_SERVICE, provider_id)
+            .map_err(|e| Error::Config(e.to_string()))?;
         match entry.get_password() {
             Ok(p) => Ok(Some(p)),
             Err(keyring::Error::NoEntry) => Ok(None),
@@ -29,12 +30,16 @@ impl KeyStore for OsKeyStore {
     }
 
     fn set(&self, provider_id: &str, key: &str) -> Result<()> {
-        let entry = keyring::Entry::new(KEYRING_SERVICE, provider_id).map_err(|e| Error::Config(e.to_string()))?;
-        entry.set_password(key).map_err(|e| Error::Config(e.to_string()))
+        let entry = keyring::Entry::new(KEYRING_SERVICE, provider_id)
+            .map_err(|e| Error::Config(e.to_string()))?;
+        entry
+            .set_password(key)
+            .map_err(|e| Error::Config(e.to_string()))
     }
 
     fn delete(&self, provider_id: &str) -> Result<()> {
-        let entry = keyring::Entry::new(KEYRING_SERVICE, provider_id).map_err(|e| Error::Config(e.to_string()))?;
+        let entry = keyring::Entry::new(KEYRING_SERVICE, provider_id)
+            .map_err(|e| Error::Config(e.to_string()))?;
         match entry.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(e) => Err(Error::Config(e.to_string())),
@@ -49,7 +54,9 @@ pub struct MemKeyStore {
 
 impl MemKeyStore {
     pub fn new() -> Self {
-        MemKeyStore { inner: Mutex::new(HashMap::new()) }
+        MemKeyStore {
+            inner: Mutex::new(HashMap::new()),
+        }
     }
 }
 
@@ -65,7 +72,10 @@ impl KeyStore for MemKeyStore {
     }
 
     fn set(&self, provider_id: &str, key: &str) -> Result<()> {
-        self.inner.lock().unwrap().insert(provider_id.to_string(), key.to_string());
+        self.inner
+            .lock()
+            .unwrap()
+            .insert(provider_id.to_string(), key.to_string());
         Ok(())
     }
 
@@ -132,7 +142,10 @@ mod tests {
     fn app_config_save_load_roundtrip() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
-        let cfg = AppConfig { last_workspace_id: Some("w1".into()), last_conversation_id: Some("c1".into()) };
+        let cfg = AppConfig {
+            last_workspace_id: Some("w1".into()),
+            last_conversation_id: Some("c1".into()),
+        };
         cfg.save(&path).unwrap();
         let back = AppConfig::load(&path).unwrap();
         assert_eq!(cfg, back);

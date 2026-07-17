@@ -23,7 +23,9 @@ impl Tool for GrepTool {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "grep".into(),
-            description: "Regex-search file contents under a workspace path. Output: relpath:line: text.".into(),
+            description:
+                "Regex-search file contents under a workspace path. Output: relpath:line: text."
+                    .into(),
             params_schema: json!({
                 "type": "object",
                 "properties": {
@@ -64,7 +66,11 @@ impl Tool for GrepTool {
                     continue;
                 }
             }
-            if entry.metadata().map(|m| m.len() > MAX_FILE_BYTES).unwrap_or(true) {
+            if entry
+                .metadata()
+                .map(|m| m.len() > MAX_FILE_BYTES)
+                .unwrap_or(true)
+            {
                 continue;
             }
             let bytes = match std::fs::read(entry.path()) {
@@ -75,7 +81,10 @@ impl Tool for GrepTool {
                 continue;
             }
             let text = String::from_utf8_lossy(&bytes);
-            let rel = entry.path().strip_prefix(&ctx.workspace_root).unwrap_or(entry.path());
+            let rel = entry
+                .path()
+                .strip_prefix(&ctx.workspace_root)
+                .unwrap_or(entry.path());
             let rel = rel.to_string_lossy().replace('\\', "/");
             for (i, line) in text.lines().enumerate() {
                 if re.is_match(line) {
@@ -123,9 +132,14 @@ impl Tool for GlobTool {
         // reject absolute patterns and any ParentDir component up front.
         let pattern_path = std::path::Path::new(&args.pattern);
         if pattern_path.is_absolute()
-            || pattern_path.components().any(|c| matches!(c, std::path::Component::ParentDir))
+            || pattern_path
+                .components()
+                .any(|c| matches!(c, std::path::Component::ParentDir))
         {
-            return Err(Error::Tool(format!("glob pattern escapes workspace: {}", args.pattern)));
+            return Err(Error::Tool(format!(
+                "glob pattern escapes workspace: {}",
+                args.pattern
+            )));
         }
         let full_pattern = ctx.workspace_root.join(&args.pattern);
         let pattern_str = full_pattern.to_string_lossy().replace('\\', "/");
@@ -183,16 +197,28 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().to_path_buf();
         std::fs::create_dir_all(root.join("src")).unwrap();
-        std::fs::write(root.join("src/main.rs"), "fn main() {\n    let needle = 1;\n}\n").unwrap();
+        std::fs::write(
+            root.join("src/main.rs"),
+            "fn main() {\n    let needle = 1;\n}\n",
+        )
+        .unwrap();
         std::fs::write(root.join("src/lib.rs"), "pub fn helper() {}\n").unwrap();
         std::fs::write(root.join("notes.md"), "a needle in markdown\n").unwrap();
-        (dir, ToolContext { workspace_root: root })
+        (
+            dir,
+            ToolContext {
+                workspace_root: root,
+            },
+        )
     }
 
     #[tokio::test]
     async fn grep_finds_matches_with_locations() {
         let (_d, ctx) = ctx();
-        let out = GrepTool.execute(&ctx, r#"{"pattern": "needle"}"#).await.unwrap();
+        let out = GrepTool
+            .execute(&ctx, r#"{"pattern": "needle"}"#)
+            .await
+            .unwrap();
         assert!(out.contains("src/main.rs:2:"), "{out}");
         assert!(out.contains("notes.md:1:"), "{out}");
         assert!(!out.contains("lib.rs"), "{out}");
@@ -201,7 +227,10 @@ mod tests {
     #[tokio::test]
     async fn grep_glob_filter() {
         let (_d, ctx) = ctx();
-        let out = GrepTool.execute(&ctx, r#"{"pattern": "needle", "glob": "*.rs"}"#).await.unwrap();
+        let out = GrepTool
+            .execute(&ctx, r#"{"pattern": "needle", "glob": "*.rs"}"#)
+            .await
+            .unwrap();
         assert!(out.contains("src/main.rs:2:"), "{out}");
         assert!(!out.contains("notes.md"), "{out}");
     }
@@ -209,20 +238,29 @@ mod tests {
     #[tokio::test]
     async fn grep_no_matches() {
         let (_d, ctx) = ctx();
-        let out = GrepTool.execute(&ctx, r#"{"pattern": "zzz"}"#).await.unwrap();
+        let out = GrepTool
+            .execute(&ctx, r#"{"pattern": "zzz"}"#)
+            .await
+            .unwrap();
         assert!(out.contains("no matches"), "{out}");
     }
 
     #[tokio::test]
     async fn grep_bad_regex_is_error() {
         let (_d, ctx) = ctx();
-        assert!(GrepTool.execute(&ctx, r#"{"pattern": "(["}"#).await.is_err());
+        assert!(GrepTool
+            .execute(&ctx, r#"{"pattern": "(["}"#)
+            .await
+            .is_err());
     }
 
     #[tokio::test]
     async fn glob_finds_files() {
         let (_d, ctx) = ctx();
-        let out = GlobTool.execute(&ctx, r#"{"pattern": "**/*.rs"}"#).await.unwrap();
+        let out = GlobTool
+            .execute(&ctx, r#"{"pattern": "**/*.rs"}"#)
+            .await
+            .unwrap();
         assert!(out.contains("src/main.rs"), "{out}");
         assert!(out.contains("src/lib.rs"), "{out}");
         assert!(!out.contains("notes.md"), "{out}");
@@ -231,7 +269,10 @@ mod tests {
     #[tokio::test]
     async fn glob_no_matches() {
         let (_d, ctx) = ctx();
-        let out = GlobTool.execute(&ctx, r#"{"pattern": "**/*.xyz"}"#).await.unwrap();
+        let out = GlobTool
+            .execute(&ctx, r#"{"pattern": "**/*.xyz"}"#)
+            .await
+            .unwrap();
         assert!(out.contains("no matches"), "{out}");
     }
 
@@ -242,7 +283,10 @@ mod tests {
         std::fs::write(dir.path().join(".git/config"), "needle-in-git\n").unwrap();
         std::fs::create_dir_all(dir.path().join("target")).unwrap();
         std::fs::write(dir.path().join("target/out.txt"), "needle-in-target\n").unwrap();
-        let out = GrepTool.execute(&ctx, r#"{"pattern": "needle"}"#).await.unwrap();
+        let out = GrepTool
+            .execute(&ctx, r#"{"pattern": "needle"}"#)
+            .await
+            .unwrap();
         assert!(!out.contains(".git"), "{out}");
         assert!(!out.contains("target"), "{out}");
         assert!(out.contains("src/main.rs"), "{out}");
@@ -252,22 +296,37 @@ mod tests {
     async fn grep_skips_binary_files() {
         let (dir, ctx) = ctx();
         std::fs::write(dir.path().join("blob.bin"), b"\x00\x01needle-binary\x02").unwrap();
-        let out = GrepTool.execute(&ctx, r#"{"pattern": "needle"}"#).await.unwrap();
+        let out = GrepTool
+            .execute(&ctx, r#"{"pattern": "needle"}"#)
+            .await
+            .unwrap();
         assert!(!out.contains("blob.bin"), "{out}");
     }
 
     #[tokio::test]
     async fn glob_rejects_parent_escape() {
         let (_d, ctx) = ctx();
-        assert!(GlobTool.execute(&ctx, r#"{"pattern": "../../*"}"#).await.is_err());
-        assert!(GlobTool.execute(&ctx, r#"{"pattern": "**/../*"}"#).await.is_err());
+        assert!(GlobTool
+            .execute(&ctx, r#"{"pattern": "../../*"}"#)
+            .await
+            .is_err());
+        assert!(GlobTool
+            .execute(&ctx, r#"{"pattern": "**/../*"}"#)
+            .await
+            .is_err());
     }
 
     #[tokio::test]
     async fn glob_lists_files_not_dirs() {
         let (_d, ctx) = ctx();
-        let out = GlobTool.execute(&ctx, r#"{"pattern": "**/*"}"#).await.unwrap();
+        let out = GlobTool
+            .execute(&ctx, r#"{"pattern": "**/*"}"#)
+            .await
+            .unwrap();
         assert!(out.contains("src/main.rs"), "{out}");
-        assert!(!out.lines().any(|l| l == "src"), "dirs must not be listed: {out}");
+        assert!(
+            !out.lines().any(|l| l == "src"),
+            "dirs must not be listed: {out}"
+        );
     }
 }

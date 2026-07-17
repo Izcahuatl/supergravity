@@ -124,7 +124,13 @@ mod tests {
     fn sse_single_data_event() {
         let mut d = SseDecoder::new();
         let evs = d.push("data: {\"a\":1}\n\n");
-        assert_eq!(evs, vec![SseEvent { event: None, data: "{\"a\":1}".to_string() }]);
+        assert_eq!(
+            evs,
+            vec![SseEvent {
+                event: None,
+                data: "{\"a\":1}".to_string()
+            }]
+        );
     }
 
     #[test]
@@ -140,7 +146,13 @@ mod tests {
     fn sse_comments_and_empty_lines_ignored() {
         let mut d = SseDecoder::new();
         let evs = d.push(": keepalive\n\n\ndata: hi\n\n");
-        assert_eq!(evs, vec![SseEvent { event: None, data: "hi".to_string() }]);
+        assert_eq!(
+            evs,
+            vec![SseEvent {
+                event: None,
+                data: "hi".to_string()
+            }]
+        );
     }
 
     #[test]
@@ -158,6 +170,12 @@ mod tests {
         let mut d = SseDecoder::new();
         assert!(d.push("data: last\n").is_empty());
         let evs = d.finish();
-        assert_eq!(evs, vec![SseEvent { event: None, data: "last".to_string() }]);
+        assert_eq!(
+            evs,
+            vec![SseEvent {
+                event: None,
+                data: "last".to_string()
+            }]
+        );
     }
 }

@@ -22,7 +22,10 @@ impl AnthropicProvider {
     pub fn new(base_url: Option<&str>, api_key: String) -> Self {
         AnthropicProvider {
             client: reqwest::Client::new(),
-            base_url: base_url.unwrap_or("https://api.anthropic.com").trim_end_matches('/').to_string(),
+            base_url: base_url
+                .unwrap_or("https://api.anthropic.com")
+                .trim_end_matches('/')
+                .to_string(),
             api_key,
         }
     }
@@ -69,7 +72,11 @@ fn message_blocks(m: &Message) -> Option<(String, Vec<Value>)> {
                 .parts
                 .iter()
                 .filter_map(|p| match p {
-                    ContentPart::ToolResult { tool_call_id, content, is_error } => Some(json!({
+                    ContentPart::ToolResult {
+                        tool_call_id,
+                        content,
+                        is_error,
+                    } => Some(json!({
                         "type": "tool_result",
                         "tool_use_id": tool_call_id,
                         "content": content,
@@ -205,26 +212,37 @@ impl AnthropicAssembler {
                         out.push(ChatEvent::ToolCall {
                             id: buf.id,
                             name: buf.name,
-                            args_json: if buf.args.is_empty() { "{}".to_string() } else { buf.args },
+                            args_json: if buf.args.is_empty() {
+                                "{}".to_string()
+                            } else {
+                                buf.args
+                            },
                         });
                     }
                 }
             }
             "message_delta" => {
-                self.output_tokens = v["usage"]["output_tokens"].as_u64().unwrap_or(self.output_tokens);
+                self.output_tokens = v["usage"]["output_tokens"]
+                    .as_u64()
+                    .unwrap_or(self.output_tokens);
             }
             "message_stop" => {
                 if self.done_emitted {
                     return out;
                 }
                 self.done_emitted = true;
-                out.push(ChatEvent::Usage { input_tokens: self.input_tokens, output_tokens: self.output_tokens });
+                out.push(ChatEvent::Usage {
+                    input_tokens: self.input_tokens,
+                    output_tokens: self.output_tokens,
+                });
                 out.push(ChatEvent::Done);
             }
             "error" => {
                 // Server-side failure (e.g. overloaded) — ends the stream; no Done after this.
                 self.done_emitted = true;
-                let msg = v["error"]["message"].as_str().unwrap_or("unknown anthropic error");
+                let msg = v["error"]["message"]
+                    .as_str()
+                    .unwrap_or("unknown anthropic error");
                 out.push(ChatEvent::Error(msg.to_string()));
             }
             _ => {}
@@ -291,7 +309,10 @@ mod tests {
     use crate::core::types::*;
 
     fn ev(event: &str, data: &str) -> SseEvent {
-        SseEvent { event: Some(event.to_string()), data: data.to_string() }
+        SseEvent {
+            event: Some(event.to_string()),
+            data: data.to_string(),
+        }
     }
 
     #[test]
@@ -304,7 +325,10 @@ mod tests {
         assert_eq!(body["system"], "be brief");
         assert_eq!(body["max_tokens"], 8096);
         assert_eq!(body["stream"], true);
-        assert_eq!(body["messages"], serde_json::json!([{"role": "user", "content": [{"type": "text", "text": "hi"}]}]));
+        assert_eq!(
+            body["messages"],
+            serde_json::json!([{"role": "user", "content": [{"type": "text", "text": "hi"}]}])
+        );
     }
 
     #[test]
@@ -313,13 +337,23 @@ mod tests {
             Message {
                 role: Role::Assistant,
                 parts: vec![
-                    ContentPart::Text { text: "reading".into() },
-                    ContentPart::ToolCall { id: "toolu_1".into(), name: "read_file".into(), args_json: "{\"path\":\"x\"}".into() },
+                    ContentPart::Text {
+                        text: "reading".into(),
+                    },
+                    ContentPart::ToolCall {
+                        id: "toolu_1".into(),
+                        name: "read_file".into(),
+                        args_json: "{\"path\":\"x\"}".into(),
+                    },
                 ],
             },
             Message {
                 role: Role::Tool,
-                parts: vec![ContentPart::ToolResult { tool_call_id: "toolu_1".into(), content: "body".into(), is_error: false }],
+                parts: vec![ContentPart::ToolResult {
+                    tool_call_id: "toolu_1".into(),
+                    content: "body".into(),
+                    is_error: false,
+                }],
             },
         ];
         let body = build_body("m", &msgs, &[]);
@@ -343,7 +377,11 @@ mod tests {
         let msgs = vec![
             Message {
                 role: Role::Tool,
-                parts: vec![ContentPart::ToolResult { tool_call_id: "t".into(), content: "r".into(), is_error: false }],
+                parts: vec![ContentPart::ToolResult {
+                    tool_call_id: "t".into(),
+                    content: "r".into(),
+                    is_error: false,
+                }],
             },
             Message::text(Role::User, "now what?"),
         ];
@@ -377,28 +415,63 @@ mod tests {
     #[test]
     fn assembler_text_stream() {
         let mut a = AnthropicAssembler::default();
-        assert!(a.push(&ev("message_start", r#"{"message":{"usage":{"input_tokens":25}}}"#)).is_empty());
-        assert!(a.push(&ev("content_block_start", r#"{"index":0,"content_block":{"type":"text","text":""}}"#)).is_empty());
-        let evs = a.push(&ev("content_block_delta", r#"{"index":0,"delta":{"type":"text_delta","text":"Hello"}}"#));
+        assert!(a
+            .push(&ev(
+                "message_start",
+                r#"{"message":{"usage":{"input_tokens":25}}}"#
+            ))
+            .is_empty());
+        assert!(a
+            .push(&ev(
+                "content_block_start",
+                r#"{"index":0,"content_block":{"type":"text","text":""}}"#
+            ))
+            .is_empty());
+        let evs = a.push(&ev(
+            "content_block_delta",
+            r#"{"index":0,"delta":{"type":"text_delta","text":"Hello"}}"#,
+        ));
         assert_eq!(evs, vec![ChatEvent::TextDelta("Hello".into())]);
-        assert!(a.push(&ev("message_delta", r#"{"usage":{"output_tokens":7}}"#)).is_empty());
+        assert!(a
+            .push(&ev("message_delta", r#"{"usage":{"output_tokens":7}}"#))
+            .is_empty());
         let evs = a.push(&ev("message_stop", r#"{}"#));
-        assert_eq!(evs, vec![
-            ChatEvent::Usage { input_tokens: 25, output_tokens: 7 },
-            ChatEvent::Done,
-        ]);
+        assert_eq!(
+            evs,
+            vec![
+                ChatEvent::Usage {
+                    input_tokens: 25,
+                    output_tokens: 7
+                },
+                ChatEvent::Done,
+            ]
+        );
     }
 
     #[test]
     fn assembler_tool_use_stream() {
         let mut a = AnthropicAssembler::default();
         assert!(a.push(&ev("content_block_start", r#"{"index":1,"content_block":{"type":"tool_use","id":"toolu_9","name":"write_file"}}"#)).is_empty());
-        assert!(a.push(&ev("content_block_delta", r#"{"index":1,"delta":{"type":"input_json_delta","partial_json":"{\"path\":"}}"#)).is_empty());
-        assert!(a.push(&ev("content_block_delta", r#"{"index":1,"delta":{"type":"input_json_delta","partial_json":"\"a\"}"}}"#)).is_empty());
+        assert!(a
+            .push(&ev(
+                "content_block_delta",
+                r#"{"index":1,"delta":{"type":"input_json_delta","partial_json":"{\"path\":"}}"#
+            ))
+            .is_empty());
+        assert!(a
+            .push(&ev(
+                "content_block_delta",
+                r#"{"index":1,"delta":{"type":"input_json_delta","partial_json":"\"a\"}"}}"#
+            ))
+            .is_empty());
         let evs = a.push(&ev("content_block_stop", r#"{"index":1}"#));
         assert_eq!(
             evs,
-            vec![ChatEvent::ToolCall { id: "toolu_9".into(), name: "write_file".into(), args_json: "{\"path\":\"a\"}".into() }]
+            vec![ChatEvent::ToolCall {
+                id: "toolu_9".into(),
+                name: "write_file".into(),
+                args_json: "{\"path\":\"a\"}".into()
+            }]
         );
     }
 
@@ -413,7 +486,10 @@ mod tests {
     #[test]
     fn body_skips_messages_with_no_blocks() {
         let msgs = vec![
-            Message { role: Role::User, parts: vec![] },
+            Message {
+                role: Role::User,
+                parts: vec![],
+            },
             Message::text(Role::User, "real"),
         ];
         let body = build_body("m", &msgs, &[]);
@@ -426,8 +502,20 @@ mod tests {
     #[test]
     fn assembler_truncated_stream_finish_emits_done_once() {
         let mut a = AnthropicAssembler::default();
-        assert!(a.push(&ev("message_start", r#"{"message":{"usage":{"input_tokens":5}}}"#)).is_empty());
-        assert_eq!(a.push(&ev("content_block_delta", r#"{"index":0,"delta":{"type":"text_delta","text":"Hi"}}"#)).len(), 1);
+        assert!(a
+            .push(&ev(
+                "message_start",
+                r#"{"message":{"usage":{"input_tokens":5}}}"#
+            ))
+            .is_empty());
+        assert_eq!(
+            a.push(&ev(
+                "content_block_delta",
+                r#"{"index":0,"delta":{"type":"text_delta","text":"Hi"}}"#
+            ))
+            .len(),
+            1
+        );
         assert_eq!(a.finish(), vec![ChatEvent::Done]);
         assert!(a.finish().is_empty());
     }
@@ -435,7 +523,10 @@ mod tests {
     #[test]
     fn assembler_error_event() {
         let mut a = AnthropicAssembler::default();
-        let evs = a.push(&ev("error", r#"{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#));
+        let evs = a.push(&ev(
+            "error",
+            r#"{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#,
+        ));
         assert_eq!(evs, vec![ChatEvent::Error("Overloaded".into())]);
         assert!(a.finish().is_empty(), "no Done after an error frame");
     }

@@ -65,7 +65,9 @@ pub fn build_body(messages: &[Message], tools: &[ToolSpec]) -> Value {
                         _ => None,
                     })
                     .collect();
-                if parts.is_empty() { continue; }
+                if parts.is_empty() {
+                    continue;
+                }
                 contents.push(json!({"role": "user", "parts": parts}));
             }
             Role::Assistant => {
@@ -84,7 +86,9 @@ pub fn build_body(messages: &[Message], tools: &[ToolSpec]) -> Value {
                     })
                     .filter(|p| !p.is_null())
                     .collect();
-                if parts.is_empty() { continue; }
+                if parts.is_empty() {
+                    continue;
+                }
                 contents.push(json!({"role": "model", "parts": parts}));
             }
             Role::Tool => {
@@ -99,7 +103,9 @@ pub fn build_body(messages: &[Message], tools: &[ToolSpec]) -> Value {
                         _ => None,
                     })
                     .collect();
-                if parts.is_empty() { continue; }
+                if parts.is_empty() {
+                    continue;
+                }
                 contents.push(json!({"role": "user", "parts": parts}));
             }
         }
@@ -154,7 +160,10 @@ impl GeminiAssembler {
                             out.push(ChatEvent::ToolCall {
                                 id,
                                 name: fc["name"].as_str().unwrap_or("").to_string(),
-                                args_json: fc.get("args").map(|a| a.to_string()).unwrap_or_else(|| "{}".into()),
+                                args_json: fc
+                                    .get("args")
+                                    .map(|a| a.to_string())
+                                    .unwrap_or_else(|| "{}".into()),
                             });
                         }
                     }
@@ -188,7 +197,10 @@ impl Provider for GeminiProvider {
         messages: &[Message],
         tools: &[ToolSpec],
     ) -> Result<Pin<Box<dyn Stream<Item = Result<ChatEvent>> + Send>>> {
-        let url = format!("{}/v1beta/models/{}:streamGenerateContent?alt=sse", self.base_url, model);
+        let url = format!(
+            "{}/v1beta/models/{}:streamGenerateContent?alt=sse",
+            self.base_url, model
+        );
         let req = self
             .client
             .post(url)
@@ -232,8 +244,14 @@ mod tests {
             Message::text(Role::User, "hi"),
         ];
         let body = build_body(&msgs, &[]);
-        assert_eq!(body["systemInstruction"], serde_json::json!({"parts": [{"text": "be brief"}]}));
-        assert_eq!(body["contents"], serde_json::json!([{"role": "user", "parts": [{"text": "hi"}]}]));
+        assert_eq!(
+            body["systemInstruction"],
+            serde_json::json!({"parts": [{"text": "be brief"}]})
+        );
+        assert_eq!(
+            body["contents"],
+            serde_json::json!([{"role": "user", "parts": [{"text": "hi"}]}])
+        );
     }
 
     #[test]
@@ -242,13 +260,23 @@ mod tests {
             Message {
                 role: Role::Assistant,
                 parts: vec![
-                    ContentPart::Text { text: "reading".into() },
-                    ContentPart::ToolCall { id: "gemini-0".into(), name: "read_file".into(), args_json: "{\"path\":\"x\"}".into() },
+                    ContentPart::Text {
+                        text: "reading".into(),
+                    },
+                    ContentPart::ToolCall {
+                        id: "gemini-0".into(),
+                        name: "read_file".into(),
+                        args_json: "{\"path\":\"x\"}".into(),
+                    },
                 ],
             },
             Message {
                 role: Role::Tool,
-                parts: vec![ContentPart::ToolResult { tool_call_id: "gemini-0".into(), content: "body".into(), is_error: false }],
+                parts: vec![ContentPart::ToolResult {
+                    tool_call_id: "gemini-0".into(),
+                    content: "body".into(),
+                    is_error: false,
+                }],
             },
         ];
         let body = build_body(&msgs, &[]);
@@ -284,10 +312,16 @@ mod tests {
     fn assembler_text_and_usage() {
         let mut a = GeminiAssembler::default();
         let evs = a.push_data(r#"{"candidates":[{"content":{"parts":[{"text":"Hello"}]}}],"usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":2}}"#);
-        assert_eq!(evs, vec![
-            ChatEvent::TextDelta("Hello".into()),
-            ChatEvent::Usage { input_tokens: 5, output_tokens: 2 },
-        ]);
+        assert_eq!(
+            evs,
+            vec![
+                ChatEvent::TextDelta("Hello".into()),
+                ChatEvent::Usage {
+                    input_tokens: 5,
+                    output_tokens: 2
+                },
+            ]
+        );
     }
 
     #[test]
@@ -297,7 +331,11 @@ mod tests {
         let mut a = GeminiAssembler::default();
         let evs = a.push_data(r#"{"candidates":[{"content":{"parts":[{"functionCall":{"name":"write_file","args":{"path":"a"}}}]}}]}"#);
         let first_id = match &evs[0] {
-            ChatEvent::ToolCall { id, name, args_json } => {
+            ChatEvent::ToolCall {
+                id,
+                name,
+                args_json,
+            } => {
                 assert!(id.starts_with("gemini-"), "{id}");
                 assert_eq!(name, "write_file");
                 assert_eq!(args_json, "{\"path\":\"a\"}");
@@ -307,7 +345,11 @@ mod tests {
         };
         let evs = a.push_data(r#"{"candidates":[{"content":{"parts":[{"functionCall":{"name":"read_file","args":{}}}]}}]}"#);
         match &evs[0] {
-            ChatEvent::ToolCall { id, name, args_json } => {
+            ChatEvent::ToolCall {
+                id,
+                name,
+                args_json,
+            } => {
                 assert!(id.starts_with("gemini-"), "{id}");
                 assert_ne!(*id, first_id, "ids must be unique");
                 assert_eq!(name, "read_file");
@@ -328,7 +370,9 @@ mod tests {
     #[test]
     fn assembler_error_payload() {
         let mut a = GeminiAssembler::default();
-        let evs = a.push_data(r#"{"error":{"code":429,"message":"quota exceeded","status":"RESOURCE_EXHAUSTED"}}"#);
+        let evs = a.push_data(
+            r#"{"error":{"code":429,"message":"quota exceeded","status":"RESOURCE_EXHAUSTED"}}"#,
+        );
         assert_eq!(evs, vec![ChatEvent::Error("quota exceeded".into())]);
         assert!(a.finish().is_empty(), "no Done after an error frame");
     }
@@ -336,7 +380,10 @@ mod tests {
     #[test]
     fn body_skips_empty_parts() {
         let msgs = vec![
-            Message { role: Role::User, parts: vec![] },
+            Message {
+                role: Role::User,
+                parts: vec![],
+            },
             Message::text(Role::User, "real"),
         ];
         let body = build_body(&msgs, &[]);

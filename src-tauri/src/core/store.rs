@@ -80,14 +80,18 @@ fn str_kind(s: &str) -> ProviderKind {
 impl Store {
     pub fn open(path: &Path) -> Result<Store> {
         let conn = Connection::open(path)?;
-        let store = Store { conn: Mutex::new(conn) };
+        let store = Store {
+            conn: Mutex::new(conn),
+        };
         store.migrate()?;
         Ok(store)
     }
 
     pub fn open_in_memory() -> Result<Store> {
         let conn = Connection::open_in_memory()?;
-        let store = Store { conn: Mutex::new(conn) };
+        let store = Store {
+            conn: Mutex::new(conn),
+        };
         store.migrate()?;
         Ok(store)
     }
@@ -144,17 +148,26 @@ impl Store {
 
     pub fn list_workspaces(&self) -> Result<Vec<WorkspaceRow>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare("SELECT id, name, path, created_at FROM workspaces ORDER BY created_at")?;
+        let mut stmt =
+            conn.prepare("SELECT id, name, path, created_at FROM workspaces ORDER BY created_at")?;
         let rows = stmt
             .query_map([], |r| {
-                Ok(WorkspaceRow { id: r.get(0)?, name: r.get(1)?, path: r.get(2)?, created_at: r.get(3)? })
+                Ok(WorkspaceRow {
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                    path: r.get(2)?,
+                    created_at: r.get(3)?,
+                })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(rows)
     }
 
     pub fn remove_workspace(&self, id: &str) -> Result<()> {
-        self.conn.lock().unwrap().execute("DELETE FROM workspaces WHERE id = ?1", params![id])?;
+        self.conn
+            .lock()
+            .unwrap()
+            .execute("DELETE FROM workspaces WHERE id = ?1", params![id])?;
         Ok(())
     }
 
@@ -222,10 +235,10 @@ impl Store {
     }
 
     pub fn rename_conversation(&self, id: &str, title: &str) -> Result<()> {
-        self.conn
-            .lock()
-            .unwrap()
-            .execute("UPDATE conversations SET title = ?1, updated_at = ?2 WHERE id = ?3", params![title, now_ts(), id])?;
+        self.conn.lock().unwrap().execute(
+            "UPDATE conversations SET title = ?1, updated_at = ?2 WHERE id = ?3",
+            params![title, now_ts(), id],
+        )?;
         Ok(())
     }
 
@@ -250,14 +263,18 @@ impl Store {
             "INSERT INTO messages(conversation_id, role, parts_json, created_at) VALUES(?1, ?2, ?3, ?4)",
             params![conversation_id, role, parts_json, now_ts()],
         )?;
-        conn.execute("UPDATE conversations SET updated_at = ?1 WHERE id = ?2", params![now_ts(), conversation_id])?;
+        conn.execute(
+            "UPDATE conversations SET updated_at = ?1 WHERE id = ?2",
+            params![now_ts(), conversation_id],
+        )?;
         Ok(())
     }
 
     pub fn get_messages(&self, conversation_id: &str) -> Result<Vec<Message>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt =
-            conn.prepare("SELECT role, parts_json FROM messages WHERE conversation_id = ?1 ORDER BY id")?;
+        let mut stmt = conn.prepare(
+            "SELECT role, parts_json FROM messages WHERE conversation_id = ?1 ORDER BY id",
+        )?;
         let rows = stmt
             .query_map(params![conversation_id], |r| {
                 Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
@@ -330,7 +347,10 @@ impl Store {
     }
 
     pub fn delete_provider(&self, id: &str) -> Result<()> {
-        self.conn.lock().unwrap().execute("DELETE FROM providers WHERE id = ?1", params![id])?;
+        self.conn
+            .lock()
+            .unwrap()
+            .execute("DELETE FROM providers WHERE id = ?1", params![id])?;
         Ok(())
     }
 }
@@ -338,7 +358,9 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::types::{ApprovalMode, ContentPart, Message, ProviderConfig, ProviderKind, Role};
+    use crate::core::types::{
+        ApprovalMode, ContentPart, Message, ProviderConfig, ProviderKind, Role,
+    };
 
     fn store() -> Store {
         Store::open_in_memory().unwrap()
@@ -347,7 +369,12 @@ mod tests {
     #[test]
     fn migrations_set_user_version() {
         let s = store();
-        let v: i64 = s.conn.lock().unwrap().query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        let v: i64 = s
+            .conn
+            .lock()
+            .unwrap()
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(v, 1);
     }
 
@@ -374,7 +401,9 @@ mod tests {
     fn conversation_lifecycle() {
         let s = store();
         let ws = s.add_workspace("proj", "/tmp/proj").unwrap();
-        let cid = s.create_conversation(&ws, "Fix bug", "openai", "gpt-5", ApprovalMode::Manual).unwrap();
+        let cid = s
+            .create_conversation(&ws, "Fix bug", "openai", "gpt-5", ApprovalMode::Manual)
+            .unwrap();
         let conv = s.get_conversation(&cid).unwrap();
         assert_eq!(conv.title, "Fix bug");
         assert_eq!(conv.approval_mode, ApprovalMode::Manual);
@@ -391,19 +420,31 @@ mod tests {
     fn messages_roundtrip_with_tool_parts() {
         let s = store();
         let ws = s.add_workspace("proj", "/tmp/proj").unwrap();
-        let cid = s.create_conversation(&ws, "c", "openai", "m", ApprovalMode::Auto).unwrap();
+        let cid = s
+            .create_conversation(&ws, "c", "openai", "m", ApprovalMode::Auto)
+            .unwrap();
         let msgs = vec![
             Message::text(Role::User, "read x"),
             Message {
                 role: Role::Assistant,
                 parts: vec![
-                    ContentPart::Text { text: "reading".into() },
-                    ContentPart::ToolCall { id: "c1".into(), name: "read_file".into(), args_json: "{}".into() },
+                    ContentPart::Text {
+                        text: "reading".into(),
+                    },
+                    ContentPart::ToolCall {
+                        id: "c1".into(),
+                        name: "read_file".into(),
+                        args_json: "{}".into(),
+                    },
                 ],
             },
             Message {
                 role: Role::Tool,
-                parts: vec![ContentPart::ToolResult { tool_call_id: "c1".into(), content: "data".into(), is_error: false }],
+                parts: vec![ContentPart::ToolResult {
+                    tool_call_id: "c1".into(),
+                    content: "data".into(),
+                    is_error: false,
+                }],
             },
         ];
         for m in &msgs {
@@ -417,8 +458,11 @@ mod tests {
     fn workspace_delete_cascades() {
         let s = store();
         let ws = s.add_workspace("proj", "/tmp/proj").unwrap();
-        let cid = s.create_conversation(&ws, "c", "openai", "m", ApprovalMode::Auto).unwrap();
-        s.append_message(&cid, &Message::text(Role::User, "hi")).unwrap();
+        let cid = s
+            .create_conversation(&ws, "c", "openai", "m", ApprovalMode::Auto)
+            .unwrap();
+        s.append_message(&cid, &Message::text(Role::User, "hi"))
+            .unwrap();
         s.remove_workspace(&ws).unwrap();
         assert!(s.list_conversations(&ws).unwrap().is_empty());
         assert!(s.get_messages(&cid).unwrap().is_empty());

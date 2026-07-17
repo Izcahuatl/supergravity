@@ -66,7 +66,9 @@ pub fn resolve_in_workspace(root: &Path, p: &str) -> Result<PathBuf> {
     if !root.is_absolute() {
         // A relative root would anchor the sandbox to an unpredictable CWD, and
         // an empty one would starts_with EVERY path — both must be rejected.
-        return Err(Error::Tool("workspace root must be an absolute path".into()));
+        return Err(Error::Tool(
+            "workspace root must be an absolute path".into(),
+        ));
     }
     let root_n = normalize(root);
     let candidate = Path::new(p);
@@ -107,7 +109,10 @@ mod tests {
     #[test]
     fn sandbox_accepts_relative_paths() {
         let root = abs_root();
-        assert_eq!(resolve_in_workspace(root, "src/main.rs").unwrap(), abs("src/main.rs"));
+        assert_eq!(
+            resolve_in_workspace(root, "src/main.rs").unwrap(),
+            abs("src/main.rs")
+        );
         assert_eq!(resolve_in_workspace(root, ".").unwrap(), abs_root());
     }
 
@@ -126,8 +131,16 @@ mod tests {
 
     #[test]
     fn sandbox_rejects_absolute_escape() {
-        let root = if cfg!(windows) { Path::new("C:\\ws") } else { Path::new("/ws") };
-        let evil = if cfg!(windows) { "D:\\other\\x" } else { "/etc/passwd" };
+        let root = if cfg!(windows) {
+            Path::new("C:\\ws")
+        } else {
+            Path::new("/ws")
+        };
+        let evil = if cfg!(windows) {
+            "D:\\other\\x"
+        } else {
+            "/etc/passwd"
+        };
         assert!(resolve_in_workspace(root, evil).is_err());
     }
 

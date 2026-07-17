@@ -36,8 +36,12 @@ pub async fn run(req: AgentRequest) -> Result<Vec<Message>> {
             return Err(Error::Cancelled);
         }
 
-        let tool_specs: Vec<crate::core::types::ToolSpec> = req.tools.iter().map(|t| t.spec()).collect();
-        let mut stream = req.provider.stream_chat(&req.model, &messages, &tool_specs).await?;
+        let tool_specs: Vec<crate::core::types::ToolSpec> =
+            req.tools.iter().map(|t| t.spec()).collect();
+        let mut stream = req
+            .provider
+            .stream_chat(&req.model, &messages, &tool_specs)
+            .await?;
 
         let mut text = String::new();
         let mut calls: Vec<(String, String, String)> = Vec::new(); // (id, name, args_json)
@@ -53,10 +57,17 @@ pub async fn run(req: AgentRequest) -> Result<Vec<Message>> {
                     text.push_str(&d);
                     let _ = req.events.send(AgentEvent::TextDelta(d)).await;
                 }
-                Ok(ChatEvent::ToolCall { id, name, args_json }) => calls.push((id, name, args_json)),
+                Ok(ChatEvent::ToolCall {
+                    id,
+                    name,
+                    args_json,
+                }) => calls.push((id, name, args_json)),
                 Ok(ChatEvent::Usage { .. }) => {}
                 Ok(ChatEvent::Error(msg)) => {
-                    stream_err = Some(Error::Provider { status: 0, body: msg });
+                    stream_err = Some(Error::Provider {
+                        status: 0,
+                        body: msg,
+                    });
                     break;
                 }
                 Ok(ChatEvent::Done) => break,
@@ -77,9 +88,16 @@ pub async fn run(req: AgentRequest) -> Result<Vec<Message>> {
             parts.push(ContentPart::Text { text });
         }
         for (id, name, args_json) in &calls {
-            parts.push(ContentPart::ToolCall { id: id.clone(), name: name.clone(), args_json: args_json.clone() });
+            parts.push(ContentPart::ToolCall {
+                id: id.clone(),
+                name: name.clone(),
+                args_json: args_json.clone(),
+            });
         }
-        let assistant = Message { role: Role::Assistant, parts };
+        let assistant = Message {
+            role: Role::Assistant,
+            parts,
+        };
         messages.push(assistant.clone());
         produced.push(assistant);
 
@@ -88,7 +106,9 @@ pub async fn run(req: AgentRequest) -> Result<Vec<Message>> {
             return Ok(produced);
         }
 
-        let ctx = ToolContext { workspace_root: req.workspace_root.clone() };
+        let ctx = ToolContext {
+            workspace_root: req.workspace_root.clone(),
+        };
         let mut results: Vec<ContentPart> = Vec::new();
         for (id, name, args_json) in calls {
             if req.cancel.is_cancelled() {
@@ -97,7 +117,11 @@ pub async fn run(req: AgentRequest) -> Result<Vec<Message>> {
             }
             let _ = req
                 .events
-                .send(AgentEvent::ToolCallProposed { id: id.clone(), name: name.clone(), args_json: args_json.clone() })
+                .send(AgentEvent::ToolCallProposed {
+                    id: id.clone(),
+                    name: name.clone(),
+                    args_json: args_json.clone(),
+                })
                 .await;
 
             let tool = req.tools.iter().find(|t| t.spec().name == name);
@@ -111,7 +135,11 @@ pub async fn run(req: AgentRequest) -> Result<Vec<Message>> {
                             summary: format!("unknown tool: {name}"),
                         })
                         .await;
-                    ContentPart::ToolResult { tool_call_id: id, content: format!("unknown tool: {name}"), is_error: true }
+                    ContentPart::ToolResult {
+                        tool_call_id: id,
+                        content: format!("unknown tool: {name}"),
+                        is_error: true,
+                    }
                 }
                 Some(t) => {
                     if t.needs_approval() {
@@ -156,23 +184,42 @@ pub async fn run(req: AgentRequest) -> Result<Vec<Message>> {
                             let summary: String = output.chars().take(80).collect();
                             let _ = req
                                 .events
-                                .send(AgentEvent::ToolCallFinished { tool_call_id: id.clone(), ok: true, summary })
+                                .send(AgentEvent::ToolCallFinished {
+                                    tool_call_id: id.clone(),
+                                    ok: true,
+                                    summary,
+                                })
                                 .await;
-                            ContentPart::ToolResult { tool_call_id: id, content: output, is_error: false }
+                            ContentPart::ToolResult {
+                                tool_call_id: id,
+                                content: output,
+                                is_error: false,
+                            }
                         }
                         Err(e) => {
                             let _ = req
                                 .events
-                                .send(AgentEvent::ToolCallFinished { tool_call_id: id.clone(), ok: false, summary: e.to_string() })
+                                .send(AgentEvent::ToolCallFinished {
+                                    tool_call_id: id.clone(),
+                                    ok: false,
+                                    summary: e.to_string(),
+                                })
                                 .await;
-                            ContentPart::ToolResult { tool_call_id: id, content: e.to_string(), is_error: true }
+                            ContentPart::ToolResult {
+                                tool_call_id: id,
+                                content: e.to_string(),
+                                is_error: true,
+                            }
                         }
                     }
                 }
             };
             results.push(result);
         }
-        let tool_msg = Message { role: Role::Tool, parts: results };
+        let tool_msg = Message {
+            role: Role::Tool,
+            parts: results,
+        };
         messages.push(tool_msg.clone());
         produced.push(tool_msg);
     }
@@ -192,17 +239,27 @@ mod tests {
     use tokio::sync::mpsc;
 
     /// Simple test tool: echoes args; configurable approval requirement.
-    struct EchoTool { needs_approval: bool }
+    struct EchoTool {
+        needs_approval: bool,
+    }
 
     #[async_trait::async_trait]
     impl Tool for EchoTool {
         fn spec(&self) -> ToolSpec {
-            ToolSpec { name: "echo".into(), description: "echo args".into(), params_schema: serde_json::json!({"type": "object"}) }
+            ToolSpec {
+                name: "echo".into(),
+                description: "echo args".into(),
+                params_schema: serde_json::json!({"type": "object"}),
+            }
         }
         fn needs_approval(&self) -> bool {
             self.needs_approval
         }
-        async fn execute(&self, _ctx: &ToolContext, args_json: &str) -> crate::core::error::Result<String> {
+        async fn execute(
+            &self,
+            _ctx: &ToolContext,
+            args_json: &str,
+        ) -> crate::core::error::Result<String> {
             Ok(format!("echoed: {args_json}"))
         }
     }
@@ -214,7 +271,14 @@ mod tests {
         max_iterations: usize,
     }
 
-    async fn run_agent(args: RunArgs) -> (crate::core::error::Result<Vec<Message>>, Vec<AgentEvent>, std::sync::Arc<MockProvider>, std::sync::Arc<ApprovalBroker>) {
+    async fn run_agent(
+        args: RunArgs,
+    ) -> (
+        crate::core::error::Result<Vec<Message>>,
+        Vec<AgentEvent>,
+        std::sync::Arc<MockProvider>,
+        std::sync::Arc<ApprovalBroker>,
+    ) {
         let provider = std::sync::Arc::new(MockProvider::new(args.script));
         let (events_tx, mut events_rx) = mpsc::channel(64);
         let broker = std::sync::Arc::new(ApprovalBroker::new(args.mode, events_tx.clone()));
@@ -233,7 +297,10 @@ mod tests {
         let handle = tokio::spawn(run(req));
         let mut events = vec![];
         while let Some(ev) = events_rx.recv().await {
-            let done = matches!(ev, AgentEvent::MessageDone | AgentEvent::Error(_) | AgentEvent::Cancelled);
+            let done = matches!(
+                ev,
+                AgentEvent::MessageDone | AgentEvent::Error(_) | AgentEvent::Cancelled
+            );
             events.push(ev);
             if done {
                 break;
@@ -245,12 +312,27 @@ mod tests {
 
     #[tokio::test]
     async fn text_only_turn() {
-        let script = vec![vec![Ok(ChatEvent::TextDelta("hi ".into())), Ok(ChatEvent::TextDelta("there".into())), Ok(ChatEvent::Done)]];
-        let (result, events, _, _) = run_agent(RunArgs { script, mode: ApprovalMode::Auto, tools: vec![], max_iterations: 5 }).await;
+        let script = vec![vec![
+            Ok(ChatEvent::TextDelta("hi ".into())),
+            Ok(ChatEvent::TextDelta("there".into())),
+            Ok(ChatEvent::Done),
+        ]];
+        let (result, events, _, _) = run_agent(RunArgs {
+            script,
+            mode: ApprovalMode::Auto,
+            tools: vec![],
+            max_iterations: 5,
+        })
+        .await;
         let msgs = result.unwrap();
         assert_eq!(msgs.len(), 1);
         assert_eq!(msgs[0].role, Role::Assistant);
-        assert_eq!(msgs[0].parts, vec![ContentPart::Text { text: "hi there".into() }]);
+        assert_eq!(
+            msgs[0].parts,
+            vec![ContentPart::Text {
+                text: "hi there".into()
+            }]
+        );
         assert!(events.contains(&AgentEvent::TextDelta("hi ".into())));
         assert!(events.contains(&AgentEvent::MessageDone));
     }
@@ -258,47 +340,83 @@ mod tests {
     #[tokio::test]
     async fn tool_cycle_appends_results_and_continues() {
         let script = vec![
-            vec![Ok(ChatEvent::ToolCall { id: "c1".into(), name: "echo".into(), args_json: "{\"a\":1}".into() }), Ok(ChatEvent::Done)],
-            vec![Ok(ChatEvent::TextDelta("done!".into())), Ok(ChatEvent::Done)],
+            vec![
+                Ok(ChatEvent::ToolCall {
+                    id: "c1".into(),
+                    name: "echo".into(),
+                    args_json: "{\"a\":1}".into(),
+                }),
+                Ok(ChatEvent::Done),
+            ],
+            vec![
+                Ok(ChatEvent::TextDelta("done!".into())),
+                Ok(ChatEvent::Done),
+            ],
         ];
         let (result, events, provider, _) = run_agent(RunArgs {
             script,
             mode: ApprovalMode::Auto,
-            tools: vec![Box::new(EchoTool { needs_approval: false })],
+            tools: vec![Box::new(EchoTool {
+                needs_approval: false,
+            })],
             max_iterations: 5,
         })
         .await;
         let msgs = result.unwrap();
-        assert_eq!(msgs.len(), 3, "assistant(call) + tool result + assistant(final): {msgs:?}");
+        assert_eq!(
+            msgs.len(),
+            3,
+            "assistant(call) + tool result + assistant(final): {msgs:?}"
+        );
         assert_eq!(msgs[1].role, Role::Tool);
         assert_eq!(
             msgs[1].parts,
-            vec![ContentPart::ToolResult { tool_call_id: "c1".into(), content: "echoed: {\"a\":1}".into(), is_error: false }]
+            vec![ContentPart::ToolResult {
+                tool_call_id: "c1".into(),
+                content: "echoed: {\"a\":1}".into(),
+                is_error: false
+            }]
         );
         // second provider call must include the tool result in history
         let calls = provider.calls.lock().unwrap();
         assert_eq!(calls.len(), 2);
         assert!(calls[1].1.iter().any(|m| m.role == Role::Tool));
-        assert!(events.contains(&AgentEvent::ToolCallProposed { id: "c1".into(), name: "echo".into(), args_json: "{\"a\":1}".into() }));
-        assert!(events.iter().any(|e| matches!(e, AgentEvent::ToolCallFinished { ok: true, .. })));
+        assert!(events.contains(&AgentEvent::ToolCallProposed {
+            id: "c1".into(),
+            name: "echo".into(),
+            args_json: "{\"a\":1}".into()
+        }));
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, AgentEvent::ToolCallFinished { ok: true, .. })));
     }
 
     #[tokio::test]
     async fn denied_approval_becomes_error_tool_result() {
         let script = vec![
-            vec![Ok(ChatEvent::ToolCall { id: "c1".into(), name: "echo".into(), args_json: "{}".into() }), Ok(ChatEvent::Done)],
+            vec![
+                Ok(ChatEvent::ToolCall {
+                    id: "c1".into(),
+                    name: "echo".into(),
+                    args_json: "{}".into(),
+                }),
+                Ok(ChatEvent::Done),
+            ],
             vec![Ok(ChatEvent::TextDelta("ok".into())), Ok(ChatEvent::Done)],
         ];
         let provider = std::sync::Arc::new(MockProvider::new(script));
         let (events_tx, mut events_rx) = mpsc::channel(64);
-        let broker = std::sync::Arc::new(ApprovalBroker::new(ApprovalMode::Manual, events_tx.clone()));
+        let broker =
+            std::sync::Arc::new(ApprovalBroker::new(ApprovalMode::Manual, events_tx.clone()));
         let dir = tempfile::tempdir().unwrap();
         let req = AgentRequest {
             workspace_root: dir.path().to_path_buf(),
             provider: provider.clone(),
             model: "m".into(),
             history: vec![Message::text(Role::User, "go")],
-            tools: vec![Box::new(EchoTool { needs_approval: true })],
+            tools: vec![Box::new(EchoTool {
+                needs_approval: true,
+            })],
             approvals: broker.clone(),
             events: events_tx,
             cancel: tokio_util::sync::CancellationToken::new(),
@@ -315,20 +433,42 @@ mod tests {
         let msgs = handle.await.unwrap().unwrap();
         assert_eq!(
             msgs[1].parts,
-            vec![ContentPart::ToolResult { tool_call_id: "c1".into(), content: "user denied this action".into(), is_error: true }]
+            vec![ContentPart::ToolResult {
+                tool_call_id: "c1".into(),
+                content: "user denied this action".into(),
+                is_error: true
+            }]
         );
     }
 
     #[tokio::test]
     async fn unknown_tool_is_error_result_not_crash() {
         let script = vec![
-            vec![Ok(ChatEvent::ToolCall { id: "c1".into(), name: "nope".into(), args_json: "{}".into() }), Ok(ChatEvent::Done)],
-            vec![Ok(ChatEvent::TextDelta("recovered".into())), Ok(ChatEvent::Done)],
+            vec![
+                Ok(ChatEvent::ToolCall {
+                    id: "c1".into(),
+                    name: "nope".into(),
+                    args_json: "{}".into(),
+                }),
+                Ok(ChatEvent::Done),
+            ],
+            vec![
+                Ok(ChatEvent::TextDelta("recovered".into())),
+                Ok(ChatEvent::Done),
+            ],
         ];
-        let (result, _, _, _) = run_agent(RunArgs { script, mode: ApprovalMode::Auto, tools: vec![], max_iterations: 5 }).await;
+        let (result, _, _, _) = run_agent(RunArgs {
+            script,
+            mode: ApprovalMode::Auto,
+            tools: vec![],
+            max_iterations: 5,
+        })
+        .await;
         let msgs = result.unwrap();
         match &msgs[1].parts[0] {
-            ContentPart::ToolResult { content, is_error, .. } => {
+            ContentPart::ToolResult {
+                content, is_error, ..
+            } => {
                 assert!(is_error);
                 assert!(content.contains("unknown tool"), "{content}");
             }
@@ -339,12 +479,23 @@ mod tests {
     #[tokio::test]
     async fn max_iterations_guard_trips() {
         let script = (0..5)
-            .map(|_| vec![Ok(ChatEvent::ToolCall { id: "c".into(), name: "echo".into(), args_json: "{}".into() }), Ok(ChatEvent::Done)])
+            .map(|_| {
+                vec![
+                    Ok(ChatEvent::ToolCall {
+                        id: "c".into(),
+                        name: "echo".into(),
+                        args_json: "{}".into(),
+                    }),
+                    Ok(ChatEvent::Done),
+                ]
+            })
             .collect();
         let (result, events, _, _) = run_agent(RunArgs {
             script,
             mode: ApprovalMode::Auto,
-            tools: vec![Box::new(EchoTool { needs_approval: false })],
+            tools: vec![Box::new(EchoTool {
+                needs_approval: false,
+            })],
             max_iterations: 2,
         })
         .await;
@@ -354,18 +505,31 @@ mod tests {
 
     #[tokio::test]
     async fn provider_error_event_aborts() {
-        let script = vec![vec![Ok(ChatEvent::TextDelta("partial".into())), Ok(ChatEvent::Error("overloaded".into()))]];
-        let (result, events, _, _) = run_agent(RunArgs { script, mode: ApprovalMode::Auto, tools: vec![], max_iterations: 5 }).await;
+        let script = vec![vec![
+            Ok(ChatEvent::TextDelta("partial".into())),
+            Ok(ChatEvent::Error("overloaded".into())),
+        ]];
+        let (result, events, _, _) = run_agent(RunArgs {
+            script,
+            mode: ApprovalMode::Auto,
+            tools: vec![],
+            max_iterations: 5,
+        })
+        .await;
         assert!(result.is_err());
         assert!(events.iter().any(|e| matches!(e, AgentEvent::Error(_))));
     }
 
     #[tokio::test]
     async fn pre_cancelled_token_aborts() {
-        let script = vec![vec![Ok(ChatEvent::TextDelta("x".into())), Ok(ChatEvent::Done)]];
+        let script = vec![vec![
+            Ok(ChatEvent::TextDelta("x".into())),
+            Ok(ChatEvent::Done),
+        ]];
         let provider = std::sync::Arc::new(MockProvider::new(script));
         let (events_tx, mut events_rx) = mpsc::channel(64);
-        let broker = std::sync::Arc::new(ApprovalBroker::new(ApprovalMode::Auto, events_tx.clone()));
+        let broker =
+            std::sync::Arc::new(ApprovalBroker::new(ApprovalMode::Auto, events_tx.clone()));
         let dir = tempfile::tempdir().unwrap();
         let cancel = tokio_util::sync::CancellationToken::new();
         cancel.cancel();
@@ -395,20 +559,47 @@ mod tests {
     async fn multiple_tool_calls_execute_in_order() {
         let script = vec![
             vec![
-                Ok(ChatEvent::ToolCall { id: "c1".into(), name: "echo".into(), args_json: "{\"n\":1}".into() }),
-                Ok(ChatEvent::ToolCall { id: "c2".into(), name: "echo".into(), args_json: "{\"n\":2}".into() }),
+                Ok(ChatEvent::ToolCall {
+                    id: "c1".into(),
+                    name: "echo".into(),
+                    args_json: "{\"n\":1}".into(),
+                }),
+                Ok(ChatEvent::ToolCall {
+                    id: "c2".into(),
+                    name: "echo".into(),
+                    args_json: "{\"n\":2}".into(),
+                }),
                 Ok(ChatEvent::Done),
             ],
-            vec![Ok(ChatEvent::TextDelta("both done".into())), Ok(ChatEvent::Done)],
+            vec![
+                Ok(ChatEvent::TextDelta("both done".into())),
+                Ok(ChatEvent::Done),
+            ],
         ];
-        let (result, _, _, _) = run_agent(RunArgs { script, mode: ApprovalMode::Auto, tools: vec![Box::new(EchoTool { needs_approval: false })], max_iterations: 5 }).await;
+        let (result, _, _, _) = run_agent(RunArgs {
+            script,
+            mode: ApprovalMode::Auto,
+            tools: vec![Box::new(EchoTool {
+                needs_approval: false,
+            })],
+            max_iterations: 5,
+        })
+        .await;
         let msgs = result.unwrap();
         assert_eq!(msgs.len(), 3);
         assert_eq!(
             msgs[1].parts,
             vec![
-                ContentPart::ToolResult { tool_call_id: "c1".into(), content: "echoed: {\"n\":1}".into(), is_error: false },
-                ContentPart::ToolResult { tool_call_id: "c2".into(), content: "echoed: {\"n\":2}".into(), is_error: false },
+                ContentPart::ToolResult {
+                    tool_call_id: "c1".into(),
+                    content: "echoed: {\"n\":1}".into(),
+                    is_error: false
+                },
+                ContentPart::ToolResult {
+                    tool_call_id: "c2".into(),
+                    content: "echoed: {\"n\":2}".into(),
+                    is_error: false
+                },
             ]
         );
     }
@@ -416,19 +607,29 @@ mod tests {
     #[tokio::test]
     async fn manual_approval_allow_executes_tool() {
         let script = vec![
-            vec![Ok(ChatEvent::ToolCall { id: "c1".into(), name: "echo".into(), args_json: "{}".into() }), Ok(ChatEvent::Done)],
+            vec![
+                Ok(ChatEvent::ToolCall {
+                    id: "c1".into(),
+                    name: "echo".into(),
+                    args_json: "{}".into(),
+                }),
+                Ok(ChatEvent::Done),
+            ],
             vec![Ok(ChatEvent::TextDelta("ok".into())), Ok(ChatEvent::Done)],
         ];
         let provider = std::sync::Arc::new(MockProvider::new(script));
         let (events_tx, mut events_rx) = mpsc::channel(64);
-        let broker = std::sync::Arc::new(ApprovalBroker::new(ApprovalMode::Manual, events_tx.clone()));
+        let broker =
+            std::sync::Arc::new(ApprovalBroker::new(ApprovalMode::Manual, events_tx.clone()));
         let dir = tempfile::tempdir().unwrap();
         let req = AgentRequest {
             workspace_root: dir.path().to_path_buf(),
             provider,
             model: "m".into(),
             history: vec![Message::text(Role::User, "go")],
-            tools: vec![Box::new(EchoTool { needs_approval: true })],
+            tools: vec![Box::new(EchoTool {
+                needs_approval: true,
+            })],
             approvals: broker.clone(),
             events: events_tx,
             cancel: tokio_util::sync::CancellationToken::new(),
@@ -444,18 +645,28 @@ mod tests {
         let msgs = handle.await.unwrap().unwrap();
         assert_eq!(
             msgs[1].parts,
-            vec![ContentPart::ToolResult { tool_call_id: "c1".into(), content: "echoed: {}".into(), is_error: false }]
+            vec![ContentPart::ToolResult {
+                tool_call_id: "c1".into(),
+                content: "echoed: {}".into(),
+                is_error: false
+            }]
         );
     }
 
     #[tokio::test]
     async fn cancel_during_approval_wait_aborts() {
-        let script = vec![
-            vec![Ok(ChatEvent::ToolCall { id: "c1".into(), name: "echo".into(), args_json: "{}".into() }), Ok(ChatEvent::Done)],
-        ];
+        let script = vec![vec![
+            Ok(ChatEvent::ToolCall {
+                id: "c1".into(),
+                name: "echo".into(),
+                args_json: "{}".into(),
+            }),
+            Ok(ChatEvent::Done),
+        ]];
         let provider = std::sync::Arc::new(MockProvider::new(script));
         let (events_tx, mut events_rx) = mpsc::channel(64);
-        let broker = std::sync::Arc::new(ApprovalBroker::new(ApprovalMode::Manual, events_tx.clone()));
+        let broker =
+            std::sync::Arc::new(ApprovalBroker::new(ApprovalMode::Manual, events_tx.clone()));
         let dir = tempfile::tempdir().unwrap();
         let cancel = tokio_util::sync::CancellationToken::new();
         let req = AgentRequest {
@@ -463,7 +674,9 @@ mod tests {
             provider,
             model: "m".into(),
             history: vec![Message::text(Role::User, "go")],
-            tools: vec![Box::new(EchoTool { needs_approval: true })],
+            tools: vec![Box::new(EchoTool {
+                needs_approval: true,
+            })],
             approvals: broker,
             events: events_tx,
             cancel: cancel.clone(),

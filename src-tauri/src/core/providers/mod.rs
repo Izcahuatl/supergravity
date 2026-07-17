@@ -1,9 +1,9 @@
 pub mod anthropic;
 pub mod gemini;
-pub mod ollama;
-pub mod openai;
 pub mod http;
 pub mod mock;
+pub mod ollama;
+pub mod openai;
 pub mod sse;
 
 use crate::core::error::Result;
@@ -31,20 +31,34 @@ use crate::core::types::ProviderKind;
 /// from the OS keychain by the caller; Anthropic and Gemini require one.
 pub fn build_provider(cfg: &ProviderConfig, api_key: Option<String>) -> Result<Box<dyn Provider>> {
     match cfg.kind {
-        ProviderKind::OpenAi | ProviderKind::OpenAiCompatible => Ok(Box::new(openai::OpenAiProvider::new(
-            cfg.base_url.as_deref(),
-            api_key,
-            cfg.extra_headers.clone(),
-        ))),
+        ProviderKind::OpenAi | ProviderKind::OpenAiCompatible => {
+            Ok(Box::new(openai::OpenAiProvider::new(
+                cfg.base_url.as_deref(),
+                api_key,
+                cfg.extra_headers.clone(),
+            )))
+        }
         ProviderKind::Anthropic => {
-            let key = api_key.ok_or_else(|| Error::Config(format!("provider '{}' requires an API key", cfg.id)))?;
-            Ok(Box::new(anthropic::AnthropicProvider::new(cfg.base_url.as_deref(), key)))
+            let key = api_key.ok_or_else(|| {
+                Error::Config(format!("provider '{}' requires an API key", cfg.id))
+            })?;
+            Ok(Box::new(anthropic::AnthropicProvider::new(
+                cfg.base_url.as_deref(),
+                key,
+            )))
         }
         ProviderKind::Gemini => {
-            let key = api_key.ok_or_else(|| Error::Config(format!("provider '{}' requires an API key", cfg.id)))?;
-            Ok(Box::new(gemini::GeminiProvider::new(cfg.base_url.as_deref(), key)))
+            let key = api_key.ok_or_else(|| {
+                Error::Config(format!("provider '{}' requires an API key", cfg.id))
+            })?;
+            Ok(Box::new(gemini::GeminiProvider::new(
+                cfg.base_url.as_deref(),
+                key,
+            )))
         }
-        ProviderKind::Ollama => Ok(Box::new(ollama::OllamaProvider::new(cfg.base_url.as_deref()))),
+        ProviderKind::Ollama => Ok(Box::new(ollama::OllamaProvider::new(
+            cfg.base_url.as_deref(),
+        ))),
     }
 }
 

@@ -43,7 +43,9 @@ impl Tool for RunShellTool {
     async fn execute(&self, ctx: &ToolContext, args_json: &str) -> Result<String> {
         let args: RunShellArgs = serde_json::from_str(args_json)?;
         let timeout = Duration::from_secs(
-            args.timeout_secs.unwrap_or(DEFAULT_TIMEOUT_SECS).clamp(1, MAX_TIMEOUT_SECS),
+            args.timeout_secs
+                .unwrap_or(DEFAULT_TIMEOUT_SECS)
+                .clamp(1, MAX_TIMEOUT_SECS),
         );
         let mut cmd = if cfg!(windows) {
             let mut c = tokio::process::Command::new("cmd");
@@ -63,7 +65,12 @@ impl Tool for RunShellTool {
             // Process-tree kill (Job Objects / killpg) is a hardening follow-up.
             .kill_on_drop(true)
             .spawn()
-            .map_err(|e| Error::Tool(format!("cannot spawn in workspace root {}: {e}", ctx.workspace_root.display())))?;
+            .map_err(|e| {
+                Error::Tool(format!(
+                    "cannot spawn in workspace root {}: {e}",
+                    ctx.workspace_root.display()
+                ))
+            })?;
 
         match tokio::time::timeout(timeout, child.wait_with_output()).await {
             Ok(Ok(output)) => {
@@ -77,7 +84,10 @@ impl Tool for RunShellTool {
                     out.push_str(&String::from_utf8_lossy(&output.stderr));
                 }
                 if !output.status.success() {
-                    out.push_str(&format!("\n[exit code {}]", output.status.code().unwrap_or(-1)));
+                    out.push_str(&format!(
+                        "\n[exit code {}]",
+                        output.status.code().unwrap_or(-1)
+                    ));
                 }
                 if out.is_empty() {
                     out = "[no output]".to_string();
@@ -102,14 +112,22 @@ mod tests {
     fn ctx() -> (tempfile::TempDir, ToolContext) {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().to_path_buf();
-        (dir, ToolContext { workspace_root: root })
+        (
+            dir,
+            ToolContext {
+                workspace_root: root,
+            },
+        )
     }
 
     #[tokio::test]
     async fn runs_command_and_captures_output() {
         let (_d, ctx) = ctx();
         let cmd = "echo hello-sg";
-        let out = RunShellTool.execute(&ctx, &format!(r#"{{"command": "{cmd}"}}"#)).await.unwrap();
+        let out = RunShellTool
+            .execute(&ctx, &format!(r#"{{"command": "{cmd}"}}"#))
+            .await
+            .unwrap();
         assert!(out.contains("hello-sg"), "{out}");
     }
 
@@ -117,14 +135,21 @@ mod tests {
     async fn reports_nonzero_exit() {
         let (_d, ctx) = ctx();
         let cmd = "exit 3";
-        let out = RunShellTool.execute(&ctx, &format!(r#"{{"command": "{cmd}"}}"#)).await.unwrap();
+        let out = RunShellTool
+            .execute(&ctx, &format!(r#"{{"command": "{cmd}"}}"#))
+            .await
+            .unwrap();
         assert!(out.contains("exit code"), "{out}");
     }
 
     #[tokio::test]
     async fn times_out_and_kills() {
         let (_d, ctx) = ctx();
-        let cmd = if cfg!(windows) { "ping -n 6 127.0.0.1 >nul" } else { "sleep 5" };
+        let cmd = if cfg!(windows) {
+            "ping -n 6 127.0.0.1 >nul"
+        } else {
+            "sleep 5"
+        };
         let args = serde_json::json!({"command": cmd, "timeout_secs": 1}).to_string();
         let out = RunShellTool.execute(&ctx, &args).await.unwrap();
         assert!(out.contains("timed out"), "{out}");

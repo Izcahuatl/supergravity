@@ -18,7 +18,10 @@ impl OllamaProvider {
     pub fn new(base_url: Option<&str>) -> Self {
         OllamaProvider {
             client: reqwest::Client::new(),
-            base_url: base_url.unwrap_or("http://localhost:11434").trim_end_matches('/').to_string(),
+            base_url: base_url
+                .unwrap_or("http://localhost:11434")
+                .trim_end_matches('/')
+                .to_string(),
         }
     }
 }
@@ -127,7 +130,10 @@ impl OllamaAssembler {
                 out.push(ChatEvent::ToolCall {
                     id,
                     name: f["name"].as_str().unwrap_or("").to_string(),
-                    args_json: f.get("arguments").map(|a| a.to_string()).unwrap_or_else(|| "{}".into()),
+                    args_json: f
+                        .get("arguments")
+                        .map(|a| a.to_string())
+                        .unwrap_or_else(|| "{}".into()),
                 });
             }
         }
@@ -161,7 +167,10 @@ impl Provider for OllamaProvider {
         tools: &[ToolSpec],
     ) -> Result<Pin<Box<dyn Stream<Item = Result<ChatEvent>> + Send>>> {
         let url = format!("{}/api/chat", self.base_url);
-        let req = self.client.post(url).json(&build_body(model, messages, tools));
+        let req = self
+            .client
+            .post(url)
+            .json(&build_body(model, messages, tools));
         let chunks = post_stream(req).await?;
         let stream = async_stream::try_stream! {
             let mut decoder = LineDecoder::new();
@@ -213,11 +222,19 @@ mod tests {
         let msgs = vec![
             Message {
                 role: Role::Assistant,
-                parts: vec![ContentPart::ToolCall { id: "ollama-0".into(), name: "read_file".into(), args_json: "{\"path\":\"x\"}".into() }],
+                parts: vec![ContentPart::ToolCall {
+                    id: "ollama-0".into(),
+                    name: "read_file".into(),
+                    args_json: "{\"path\":\"x\"}".into(),
+                }],
             },
             Message {
                 role: Role::Tool,
-                parts: vec![ContentPart::ToolResult { tool_call_id: "ollama-0".into(), content: "body".into(), is_error: false }],
+                parts: vec![ContentPart::ToolResult {
+                    tool_call_id: "ollama-0".into(),
+                    content: "body".into(),
+                    is_error: false,
+                }],
             },
         ];
         let body = build_body("m", &msgs, &[]);
@@ -225,7 +242,10 @@ mod tests {
             body["messages"][0]["tool_calls"],
             serde_json::json!([{"type": "function", "function": {"name": "read_file", "arguments": {"path": "x"}}}])
         );
-        assert_eq!(body["messages"][1], serde_json::json!({"role": "tool", "content": "body"}));
+        assert_eq!(
+            body["messages"][1],
+            serde_json::json!({"role": "tool", "content": "body"})
+        );
     }
 
     #[test]
@@ -241,7 +261,11 @@ mod tests {
         let evs = a.push_line(r#"{"message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"grep","arguments":{"pattern":"foo"}}}]},"done":false}"#);
         assert_eq!(evs.len(), 1);
         match &evs[0] {
-            ChatEvent::ToolCall { id, name, args_json } => {
+            ChatEvent::ToolCall {
+                id,
+                name,
+                args_json,
+            } => {
                 assert!(id.starts_with("ollama-"), "{id}");
                 assert_eq!(name, "grep");
                 assert_eq!(args_json, "{\"pattern\":\"foo\"}");
@@ -256,7 +280,9 @@ mod tests {
         let evs = a.push_line(r#"{"error":"model requires more system memory than is available"}"#);
         assert_eq!(
             evs,
-            vec![ChatEvent::Error("model requires more system memory than is available".into())]
+            vec![ChatEvent::Error(
+                "model requires more system memory than is available".into()
+            )]
         );
         assert!(a.finish().is_empty(), "no Done after an error line");
     }
@@ -265,10 +291,16 @@ mod tests {
     fn assembler_done_line_with_usage() {
         let mut a = OllamaAssembler::default();
         let evs = a.push_line(r#"{"message":{"role":"assistant","content":""},"done":true,"prompt_eval_count":11,"eval_count":6}"#);
-        assert_eq!(evs, vec![
-            ChatEvent::Usage { input_tokens: 11, output_tokens: 6 },
-            ChatEvent::Done,
-        ]);
+        assert_eq!(
+            evs,
+            vec![
+                ChatEvent::Usage {
+                    input_tokens: 11,
+                    output_tokens: 6
+                },
+                ChatEvent::Done,
+            ]
+        );
         assert!(a.finish().is_empty());
     }
 
