@@ -20,7 +20,7 @@
 - Delete: `Cargo.toml`, `Cargo.lock`, `src/main.rs` (repo root)
 - Create: `src-tauri/Cargo.toml`, `src-tauri/src/lib.rs`, `src-tauri/src/core/mod.rs`
 
-- [ ] **Step 1: Remove the placeholder crate, create the new structure**
+- [x] **Step 1: Remove the placeholder crate, create the new structure**
 
 ```bash
 cd /b/Jetbrains/projects/kimislop
@@ -28,7 +28,7 @@ git rm -r -q src Cargo.toml Cargo.lock
 mkdir -p src-tauri/src/core
 ```
 
-- [ ] **Step 2: Write `src-tauri/Cargo.toml`**
+- [x] **Step 2: Write `src-tauri/Cargo.toml`**
 
 ```toml
 [package]
@@ -43,13 +43,13 @@ path = "src/lib.rs"
 [dependencies]
 ```
 
-- [ ] **Step 3: Write `src-tauri/src/lib.rs`**
+- [x] **Step 3: Write `src-tauri/src/lib.rs`**
 
 ```rust
 pub mod core;
 ```
 
-- [ ] **Step 4: Write `src-tauri/src/core/mod.rs` (with smoke test)**
+- [x] **Step 4: Write `src-tauri/src/core/mod.rs` (with smoke test)**
 
 ```rust
 #[cfg(test)]
@@ -61,7 +61,7 @@ mod tests {
 }
 ```
 
-- [ ] **Step 5: Add dependencies**
+- [x] **Step 5: Add dependencies**
 
 ```bash
 cd /b/Jetbrains/projects/kimislop/src-tauri
@@ -75,12 +75,12 @@ cargo add uuid --features v4
 cargo add tempfile --dev
 ```
 
-- [ ] **Step 6: Verify build and smoke test**
+- [x] **Step 6: Verify build and smoke test**
 
 Run: `cd /b/Jetbrains/projects/kimislop/src-tauri && cargo test`
 Expected: `test result: ok. 1 passed`
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 cd /b/Jetbrains/projects/kimislop
@@ -97,7 +97,7 @@ git commit -m "chore: scaffold supergravity core crate at src-tauri/"
 - Create: `src-tauri/src/core/error.rs`
 - Modify: `src-tauri/src/core/mod.rs`
 
-- [ ] **Step 1: Write the failing tests (append to `src-tauri/src/core/types.rs` after creating it empty, or write whole file with tests then impl — here: write tests first in `src-tauri/src/core/types.rs`)**
+- [x] **Step 1: Write the failing tests (append to `src-tauri/src/core/types.rs` after creating it empty, or write whole file with tests then impl — here: write tests first in `src-tauri/src/core/types.rs`)**
 
 Create `src-tauri/src/core/types.rs` containing ONLY:
 
@@ -211,12 +211,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd /b/Jetbrains/projects/kimislop/src-tauri && cargo test`
 Expected: compile errors — `ContentPart`, `Role`, `Error` etc. not found.
 
-- [ ] **Step 3: Implement `src-tauri/src/core/types.rs` (prepend above the test module)**
+- [x] **Step 3: Implement `src-tauri/src/core/types.rs` (prepend above the test module)**
 
 ```rust
 use serde::{Deserialize, Serialize};
@@ -308,7 +308,7 @@ pub struct ProviderConfig {
 }
 ```
 
-- [ ] **Step 4: Implement `src-tauri/src/core/error.rs` (prepend above the test module)**
+- [x] **Step 4: Implement `src-tauri/src/core/error.rs` (prepend above the test module)**
 
 ```rust
 #[derive(Debug, thiserror::Error)]
@@ -338,12 +338,12 @@ pub enum Error {
 pub type Result<T> = std::result::Result<T, Error>;
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `cd /b/Jetbrains/projects/kimislop/src-tauri && cargo test`
 Expected: `test result: ok. 11 passed`
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /b/Jetbrains/projects/kimislop

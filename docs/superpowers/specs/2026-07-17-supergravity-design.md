@@ -103,10 +103,10 @@ Unified message model in `core/types.rs`:
 ```rust
 enum Role { System, User, Assistant, Tool }
 struct Message { role: Role, parts: Vec<ContentPart> }
-enum ContentPart { Text(String), ToolCall(ToolCall), ToolResult { id: String, content: String, is_error: bool } }
-struct ToolCall { id: String, name: String, args_json: String }
+enum ContentPart { Text { text }, ToolCall { id, name, args_json }, ToolResult { tool_call_id, content, is_error } }
 struct ToolSpec { name: String, description: String, params_schema: serde_json::Value } // JSON Schema
-enum ChatEvent { TextDelta(String), ToolCall(ToolCall), Usage { input: u64, output: u64 }, Done, Error(String) }
+// Stream items are Result<ChatEvent>; errors travel in Err, not in-band:
+enum ChatEvent { TextDelta(String), ToolCall { id, name, args_json }, Usage { input_tokens, output_tokens }, Done }
 ```
 
 `Provider` trait (async_trait):
