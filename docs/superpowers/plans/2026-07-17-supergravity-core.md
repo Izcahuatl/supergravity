@@ -4809,7 +4809,7 @@ git commit -m "feat(core): SQLite store with migrations"
 - Create: `src-tauri/src/core/config.rs`
 - Modify: `src-tauri/src/core/mod.rs` (add `pub mod config;`)
 
-- [ ] **Step 1: Write the failing tests — create `src-tauri/src/core/config.rs` containing ONLY**
+- [x] **Step 1: Write the failing tests — create `src-tauri/src/core/config.rs` containing ONLY**
 
 ```rust
 #[cfg(test)]
@@ -4857,12 +4857,12 @@ Modify `src-tauri/src/core/mod.rs` — add:
 pub mod config;
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd /b/Jetbrains/projects/kimislop/src-tauri && cargo test config`
 Expected: compile errors — `MemKeyStore`, `AppConfig` not found.
 
-- [ ] **Step 3: Implement config (prepend to `src-tauri/src/core/config.rs`)**
+- [x] **Step 3: Implement config (prepend to `src-tauri/src/core/config.rs`)**
 
 ```rust
 use crate::core::error::{Error, Result};
@@ -4974,12 +4974,12 @@ pub fn data_dir() -> Result<PathBuf> {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd /b/Jetbrains/projects/kimislop/src-tauri && cargo test config`
 Expected: `test result: ok. 4 passed`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /b/Jetbrains/projects/kimislop

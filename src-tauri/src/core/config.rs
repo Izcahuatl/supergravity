@@ -7,6 +7,8 @@ use std::sync::Mutex;
 const KEYRING_SERVICE: &str = "supergravity";
 
 /// API-key storage. Keys are addressed by provider id.
+/// Implementations are synchronous (OS keychain IPC) — async callers MUST use
+/// `tokio::task::spawn_blocking` or Tauri's sync-command mechanism.
 pub trait KeyStore: Send + Sync {
     fn get(&self, provider_id: &str) -> Result<Option<String>>;
     fn set(&self, provider_id: &str, key: &str) -> Result<()>;
@@ -99,7 +101,7 @@ impl AppConfig {
     }
 }
 
-/// Platform app-data directory for supergravity (e.g. `%APPDATA%/supergravity`).
+/// Platform app-data directory for supergravity (e.g. `%APPDATA%\supergravity\data`).
 pub fn data_dir() -> Result<PathBuf> {
     let dirs = directories::ProjectDirs::from("", "", "supergravity")
         .ok_or_else(|| Error::Config("cannot determine app data dir".into()))?;
@@ -141,5 +143,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let cfg = AppConfig::load(&dir.path().join("nope.toml")).unwrap();
         assert_eq!(cfg, AppConfig::default());
+    }
+
+    #[test]
+    fn app_config_default_roundtrips() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        AppConfig::default().save(&path).unwrap();
+        assert_eq!(AppConfig::load(&path).unwrap(), AppConfig::default());
     }
 }
