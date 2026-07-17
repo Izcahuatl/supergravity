@@ -3100,7 +3100,7 @@ git commit -m "feat(core): tool trait, workspace path sandbox, fs tools"
 - Create: `src-tauri/src/core/tools/search.rs`
 - Modify: `src-tauri/src/core/tools/mod.rs` (add `pub mod search;` and register both tools in `default_tools`)
 
-- [ ] **Step 1: Write the failing tests — create `src-tauri/src/core/tools/search.rs` containing ONLY**
+- [x] **Step 1: Write the failing tests — create `src-tauri/src/core/tools/search.rs` containing ONLY**
 
 ```rust
 #[cfg(test)]
@@ -3163,10 +3163,46 @@ mod tests {
         let out = GlobTool.execute(&ctx, r#"{"pattern": "**/*.xyz"}"#).await.unwrap();
         assert!(out.contains("no matches"), "{out}");
     }
+
+    #[tokio::test]
+    async fn grep_skips_hidden_dirs_and_target() {
+        let (dir, ctx) = ctx();
+        std::fs::create_dir_all(dir.path().join(".git")).unwrap();
+        std::fs::write(dir.path().join(".git/config"), "needle-in-git\n").unwrap();
+        std::fs::create_dir_all(dir.path().join("target")).unwrap();
+        std::fs::write(dir.path().join("target/out.txt"), "needle-in-target\n").unwrap();
+        let out = GrepTool.execute(&ctx, r#"{"pattern": "needle"}"#).await.unwrap();
+        assert!(!out.contains(".git"), "{out}");
+        assert!(!out.contains("target"), "{out}");
+        assert!(out.contains("src/main.rs"), "{out}");
+    }
+
+    #[tokio::test]
+    async fn grep_skips_binary_files() {
+        let (dir, ctx) = ctx();
+        std::fs::write(dir.path().join("blob.bin"), b"\x00\x01needle-binary\x02").unwrap();
+        let out = GrepTool.execute(&ctx, r#"{"pattern": "needle"}"#).await.unwrap();
+        assert!(!out.contains("blob.bin"), "{out}");
+    }
+
+    #[tokio::test]
+    async fn glob_rejects_parent_escape() {
+        let (_d, ctx) = ctx();
+        assert!(GlobTool.execute(&ctx, r#"{"pattern": "../../*"}"#).await.is_err());
+        assert!(GlobTool.execute(&ctx, r#"{"pattern": "**/../*"}"#).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn glob_lists_files_not_dirs() {
+        let (_d, ctx) = ctx();
+        let out = GlobTool.execute(&ctx, r#"{"pattern": "**/*"}"#).await.unwrap();
+        assert!(out.contains("src/main.rs"), "{out}");
+        assert!(!out.lines().any(|l| l == "src"), "dirs must not be listed: {out}");
+    }
 }
 ```
 
-- [ ] **Step 2: Wire the module — modify `src-tauri/src/core/tools/mod.rs`**
+- [x] **Step 2: Wire the module — modify `src-tauri/src/core/tools/mod.rs`**
 
 Add at the top:
 
@@ -3188,12 +3224,12 @@ pub fn default_tools() -> Vec<Box<dyn Tool>> {
 }
 ```
 
-- [ ] **Step 3: Run tests to verify they fail**
+- [x] **Step 3: Run tests to verify they fail**
 
 Run: `cd /b/Jetbrains/projects/kimislop/src-tauri && cargo test search`
 Expected: compile errors — `GrepTool`, `GlobTool` not found.
 
-- [ ] **Step 4: Implement the search tools (prepend to `src-tauri/src/core/tools/search.rs`)**
+- [x] **Step 4: Implement the search tools (prepend to `src-tauri/src/core/tools/search.rs`)**
 
 ```rust
 use crate::core::error::{Error, Result};
@@ -3245,7 +3281,11 @@ impl Tool for GrepTool {
             .transpose()
             .map_err(|e| Error::Tool(format!("bad glob: {e}")))?;
         let mut out: Vec<String> = Vec::new();
-        for entry in walkdir::WalkDir::new(&base).into_iter().filter_map(|e| e.ok()) {
+        for entry in walkdir::WalkDir::new(&base)
+            .into_iter()
+            .filter_entry(|e| !is_skipped_dir(e))
+            .filter_map(|e| e.ok())
+        {
             if out.len() >= MAX_MATCHES {
                 break;
             }
@@ -3265,11 +3305,15 @@ impl Tool for GrepTool {
                 Ok(b) => b,
                 Err(_) => continue,
             };
+            if is_binary(&bytes) {
+                continue;
+            }
             let text = String::from_utf8_lossy(&bytes);
             let rel = entry.path().strip_prefix(&ctx.workspace_root).unwrap_or(entry.path());
+            let rel = rel.to_string_lossy().replace('\\', "/");
             for (i, line) in text.lines().enumerate() {
                 if re.is_match(line) {
-                    out.push(format!("{}:{}: {}", rel.display(), i + 1, line.trim_end()));
+                    out.push(format!("{}:{}: {}", rel, i + 1, line.trim_end()));
                     if out.len() >= MAX_MATCHES {
                         break;
                     }
@@ -3284,6 +3328,24 @@ impl Tool for GrepTool {
         }
         Ok(out.join("\n"))
     }
+}
+
+/// Directories grep never descends into: hidden dirs (.git, .idea, …) and
+/// build/dependency output that swamps results. The walk ROOT (depth 0) is
+/// never skipped — it may itself be a dot-dir or named `target`.
+fn is_skipped_dir(entry: &walkdir::DirEntry) -> bool {
+    if entry.depth() == 0 || !entry.file_type().is_dir() {
+        return false;
+    }
+    let name = entry.file_name().to_string_lossy();
+    name.starts_with('.') || name == "target" || name == "node_modules"
+}
+
+/// Binary heuristic: NUL byte in the first 8 KB (same rule git/grep use).
+fn is_binary(bytes: &[u8]) -> bool {
+    const SNIFF: usize = 8192;
+    let head = &bytes[..bytes.len().min(SNIFF)];
+    head.contains(&0)
 }
 
 pub struct GlobTool;
@@ -3309,11 +3371,22 @@ impl Tool for GlobTool {
 
     async fn execute(&self, ctx: &ToolContext, args_json: &str) -> Result<String> {
         let args: GlobArgs = serde_json::from_str(args_json)?;
+        // glob::glob passes `..` through literally, which would escape the root —
+        // reject absolute patterns and any ParentDir component up front.
+        let pattern_path = std::path::Path::new(&args.pattern);
+        if pattern_path.is_absolute()
+            || pattern_path.components().any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            return Err(Error::Tool(format!("glob pattern escapes workspace: {}", args.pattern)));
+        }
         let full_pattern = ctx.workspace_root.join(&args.pattern);
         let pattern_str = full_pattern.to_string_lossy().replace('\\', "/");
         let paths = glob::glob(&pattern_str).map_err(|e| Error::Tool(format!("bad glob: {e}")))?;
         let mut out: Vec<String> = Vec::new();
         for p in paths.flatten() {
+            if !p.is_file() {
+                continue;
+            }
             if !p.starts_with(&ctx.workspace_root) {
                 continue;
             }
@@ -3327,17 +3400,20 @@ impl Tool for GlobTool {
         if out.is_empty() {
             return Ok("no matches".into());
         }
+        if out.len() >= MAX_GLOB_RESULTS {
+            out.push(format!("…[capped at {MAX_GLOB_RESULTS} results]"));
+        }
         Ok(out.join("\n"))
     }
 }
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `cd /b/Jetbrains/projects/kimislop/src-tauri && cargo test search`
 Expected: `test result: ok. 6 passed`
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /b/Jetbrains/projects/kimislop
