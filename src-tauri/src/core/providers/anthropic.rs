@@ -98,6 +98,10 @@ pub fn build_body(model: &str, messages: &[Message], tools: &[ToolSpec]) -> Valu
     let mut msgs: Vec<Value> = Vec::new();
     for m in messages {
         if let Some((role, blocks)) = message_blocks(m) {
+            // Anthropic rejects empty content arrays — skip block-less messages.
+            if blocks.is_empty() {
+                continue;
+            }
             // Anthropic requires strictly alternating roles — merge consecutive same-role turns.
             if let Some(last) = msgs.last_mut() {
                 if last["role"].as_str() == Some(role.as_str()) {
@@ -210,9 +214,18 @@ impl AnthropicAssembler {
                 self.output_tokens = v["usage"]["output_tokens"].as_u64().unwrap_or(self.output_tokens);
             }
             "message_stop" => {
+                if self.done_emitted {
+                    return out;
+                }
                 self.done_emitted = true;
                 out.push(ChatEvent::Usage { input_tokens: self.input_tokens, output_tokens: self.output_tokens });
                 out.push(ChatEvent::Done);
+            }
+            "error" => {
+                // Server-side failure (e.g. overloaded) — ends the stream; no Done after this.
+                self.done_emitted = true;
+                let msg = v["error"]["message"].as_str().unwrap_or("unknown anthropic error");
+                out.push(ChatEvent::Error(msg.to_string()));
             }
             _ => {}
         }
@@ -395,5 +408,35 @@ mod tests {
         assert!(a.push(&ev("ping", r#"{}"#)).is_empty());
         assert!(a.push(&ev("content_block_delta", "{broken")).is_empty());
         assert!(a.finish().is_empty());
+    }
+
+    #[test]
+    fn body_skips_messages_with_no_blocks() {
+        let msgs = vec![
+            Message { role: Role::User, parts: vec![] },
+            Message::text(Role::User, "real"),
+        ];
+        let body = build_body("m", &msgs, &[]);
+        assert_eq!(
+            body["messages"],
+            serde_json::json!([{"role": "user", "content": [{"type": "text", "text": "real"}]}])
+        );
+    }
+
+    #[test]
+    fn assembler_truncated_stream_finish_emits_done_once() {
+        let mut a = AnthropicAssembler::default();
+        assert!(a.push(&ev("message_start", r#"{"message":{"usage":{"input_tokens":5}}}"#)).is_empty());
+        assert_eq!(a.push(&ev("content_block_delta", r#"{"index":0,"delta":{"type":"text_delta","text":"Hi"}}"#)).len(), 1);
+        assert_eq!(a.finish(), vec![ChatEvent::Done]);
+        assert!(a.finish().is_empty());
+    }
+
+    #[test]
+    fn assembler_error_event() {
+        let mut a = AnthropicAssembler::default();
+        let evs = a.push(&ev("error", r#"{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#));
+        assert_eq!(evs, vec![ChatEvent::Error("Overloaded".into())]);
+        assert!(a.finish().is_empty(), "no Done after an error frame");
     }
 }

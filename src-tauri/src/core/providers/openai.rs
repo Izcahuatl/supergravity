@@ -131,6 +131,11 @@ impl OpenAiAssembler {
             Ok(v) => v,
             Err(_) => return out,
         };
+        if let Some(err) = v.get("error") {
+            let msg = err["message"].as_str().unwrap_or("unknown provider error");
+            out.push(ChatEvent::Error(msg.to_string()));
+            return out;
+        }
         if let Some(u) = v.get("usage").filter(|u| !u.is_null()) {
             out.push(ChatEvent::Usage {
                 input_tokens: u["prompt_tokens"].as_u64().unwrap_or(0),
@@ -371,5 +376,12 @@ mod tests {
         assert_eq!(a.push_data("[DONE]"), vec![ChatEvent::Done]);
         assert!(a.push_data("[DONE]").is_empty());
         assert!(a.finish().is_empty());
+    }
+
+    #[test]
+    fn assembler_error_payload() {
+        let mut a = OpenAiAssembler::default();
+        let evs = a.push_data(r#"{"error":{"message":"rate limited","type":"rate_limit_error"}}"#);
+        assert_eq!(evs, vec![ChatEvent::Error("rate limited".into())]);
     }
 }

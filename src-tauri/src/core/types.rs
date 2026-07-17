@@ -42,6 +42,8 @@ pub enum ChatEvent {
     TextDelta(String),
     ToolCall { id: String, name: String, args_json: String },
     Usage { input_tokens: u64, output_tokens: u64 },
+    /// Server-sent error frame (Anthropic `error` events, OpenAI error payloads).
+    Error(String),
     Done,
 }
 
