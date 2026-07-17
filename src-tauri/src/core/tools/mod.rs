@@ -28,6 +28,7 @@ pub fn default_tools() -> Vec<Box<dyn Tool>> {
         Box::new(fs::ListDirTool),
         Box::new(search::GrepTool),
         Box::new(search::GlobTool),
+        Box::new(shell::RunShellTool),
     ]
 }
 
@@ -83,6 +84,7 @@ pub fn resolve_in_workspace(root: &Path, p: &str) -> Result<PathBuf> {
 
 pub mod fs;
 pub mod search;
+pub mod shell;
 
 #[cfg(test)]
 mod tests {
