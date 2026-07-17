@@ -95,7 +95,6 @@ pub fn build_body(model: &str, messages: &[Message], tools: &[ToolSpec]) -> Valu
 /// Assembles Ollama NDJSON lines into [`ChatEvent`]s.
 #[derive(Default)]
 pub struct OllamaAssembler {
-    call_counter: usize,
     done_emitted: bool,
 }
 
@@ -110,14 +109,21 @@ impl OllamaAssembler {
             Ok(v) => v,
             Err(_) => return out,
         };
+        if let Some(err) = v.get("error").and_then(Value::as_str) {
+            // Mid-stream server failure (model OOM, template error) — no Done after this.
+            self.done_emitted = true;
+            out.push(ChatEvent::Error(err.to_string()));
+            return out;
+        }
         if let Some(content) = v["message"]["content"].as_str().filter(|s| !s.is_empty()) {
             out.push(ChatEvent::TextDelta(content.to_string()));
         }
         if let Some(calls) = v["message"]["tool_calls"].as_array() {
             for call in calls {
                 let f = &call["function"];
-                let id = format!("ollama-{}", self.call_counter);
-                self.call_counter += 1;
+                // Unique per call for cross-turn consistency with other providers
+                // (Ollama's wire format ignores ids, but stored history shouldn't collide).
+                let id = format!("ollama-{}", uuid::Uuid::new_v4());
                 out.push(ChatEvent::ToolCall {
                     id,
                     name: f["name"].as_str().unwrap_or("").to_string(),
@@ -233,10 +239,26 @@ mod tests {
     fn assembler_tool_call_line() {
         let mut a = OllamaAssembler::default();
         let evs = a.push_line(r#"{"message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"grep","arguments":{"pattern":"foo"}}}]},"done":false}"#);
+        assert_eq!(evs.len(), 1);
+        match &evs[0] {
+            ChatEvent::ToolCall { id, name, args_json } => {
+                assert!(id.starts_with("ollama-"), "{id}");
+                assert_eq!(name, "grep");
+                assert_eq!(args_json, "{\"pattern\":\"foo\"}");
+            }
+            other => panic!("expected ToolCall, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn assembler_error_line() {
+        let mut a = OllamaAssembler::default();
+        let evs = a.push_line(r#"{"error":"model requires more system memory than is available"}"#);
         assert_eq!(
             evs,
-            vec![ChatEvent::ToolCall { id: "ollama-0".into(), name: "grep".into(), args_json: "{\"pattern\":\"foo\"}".into() }]
+            vec![ChatEvent::Error("model requires more system memory than is available".into())]
         );
+        assert!(a.finish().is_empty(), "no Done after an error line");
     }
 
     #[test]
