@@ -2,6 +2,7 @@ pub mod providers;
 
 pub mod agent;
 pub mod approvals;
+pub mod config;
 pub mod error;
 pub mod store;
 pub mod tools;
