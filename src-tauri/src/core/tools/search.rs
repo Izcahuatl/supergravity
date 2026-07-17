@@ -69,9 +69,10 @@ impl Tool for GrepTool {
             };
             let text = String::from_utf8_lossy(&bytes);
             let rel = entry.path().strip_prefix(&ctx.workspace_root).unwrap_or(entry.path());
+            let rel = rel.to_string_lossy().replace('\\', "/");
             for (i, line) in text.lines().enumerate() {
                 if re.is_match(line) {
-                    out.push(format!("{}:{}: {}", rel.display(), i + 1, line.trim_end()));
+                    out.push(format!("{}:{}: {}", rel, i + 1, line.trim_end()));
                     if out.len() >= MAX_MATCHES {
                         break;
                     }
