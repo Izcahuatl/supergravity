@@ -1357,7 +1357,7 @@ export const state = {
 const $ = (id) => document.getElementById(id);
 
 // Wrap async UI handlers: surface failures instead of silent unhandled rejections.
-const guard = (fn) => (e) => fn(e).catch((err) => {
+export const guard = (fn) => (e) => fn(e).catch((err) => {
   console.error(err);
   alert(String(err));
 });
@@ -2040,28 +2040,37 @@ git commit -m "feat(ui): streaming chat, tool cards, inline approvals"
 - Create: `ui/settings.js` (replace stub)
 - Modify: `ui/style.css` (settings list rows)
 
-- [ ] **Step 1: `ui/settings.js`**
+- [x] **Step 1: `ui/settings.js`**
 
 ```js
 import { api } from "./api.js";
-import { state, renderSidebar } from "./app.js";
+import { state, renderSidebar, guard } from "./app.js";
 
 const $ = (id) => document.getElementById(id);
 
+// Captured at init — renderSettings is top-level but needs to refresh providers.
+let refreshProvidersFn = async () => {};
+
 export function initSettings(_state, refreshProviders) {
+  refreshProvidersFn = refreshProviders;
   $("open-settings").onclick = () => {
     renderSettings();
     $("settings").classList.remove("hidden");
   };
   $("close-settings").onclick = () => $("settings").classList.add("hidden");
 
-  $("custom-provider-form").onsubmit = async (e) => {
+  $("custom-provider-form").onsubmit = guard(async (e) => {
     e.preventDefault();
     const label = $("cp-label").value.trim();
     const baseUrl = $("cp-base-url").value.trim();
     const models = $("cp-models").value.split(",").map((m) => m.trim()).filter(Boolean);
     const key = $("cp-key").value.trim();
     const id = label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || `custom-${Date.now()}`;
+    if (state.providers.some((p) => p.id === id)) {
+      // Upsert would silently clobber the existing row (including has_key).
+      alert(`A provider with id "${id}" already exists — edit it above instead.`);
+      return;
+    }
     await api.upsertProvider({
       id,
       label,
@@ -2073,9 +2082,9 @@ export function initSettings(_state, refreshProviders) {
     });
     if (key) await api.setApiKey(id, key);
     e.target.reset();
-    await refreshProviders();
+    await refreshProvidersFn();
     renderSettings();
-  };
+  });
 
   $("workspace-form").onsubmit = async (e) => {
     e.preventDefault();
@@ -2142,40 +2151,42 @@ function renderSettings() {
     actions.append(mkBtn("p-delete", "Delete provider"));
 
     row.append(head, baseLabel, modelsLabel, actions);
-    row.querySelector(".p-save").onclick = async () => {
+    row.querySelector(".p-save").onclick = guard(async () => {
       p.base_url = row.querySelector(".p-base").value.trim() || null;
       p.models = row.querySelector(".p-models").value.split(",").map((m) => m.trim()).filter(Boolean);
       await api.upsertProvider(p);
-    };
-    row.querySelector(".p-set-key").onclick = async () => {
+      await refreshProvidersFn();
+      renderSettings();
+    });
+    row.querySelector(".p-set-key").onclick = guard(async () => {
       const key = prompt(`API key for ${p.label} (stored in OS keychain):`);
       if (key) {
         await api.setApiKey(p.id, key.trim());
         p.has_key = true;
         renderSettings();
       }
-    };
+    });
     const delKey = row.querySelector(".p-del-key");
     if (delKey) {
-      delKey.onclick = async () => {
+      delKey.onclick = guard(async () => {
         await api.deleteApiKey(p.id);
         p.has_key = false;
         renderSettings();
-      };
+      });
     }
-    row.querySelector(".p-delete").onclick = async () => {
+    row.querySelector(".p-delete").onclick = guard(async () => {
       if (confirm(`Delete provider ${p.label}?`)) {
         await api.deleteProvider(p.id);
-        state.providers = await api.listProviders();
+        await refreshProvidersFn();
         renderSettings();
       }
-    };
+    });
     list.appendChild(row);
   }
 }
 ```
 
-- [ ] **Step 2: Extend `ui/style.css`**
+- [x] **Step 2: Extend `ui/style.css`**
 
 ```css
 .provider-row {
@@ -2191,11 +2202,11 @@ function renderSettings() {
 .provider-actions { display: flex; gap: 8px; margin-top: 6px; }
 ```
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 `cargo tauri dev` — Settings: providers render with key badges; set/delete key works (check Windows Credential Manager has a `supergravity/ollama`-style entry after setting); custom provider add works; workspace add persists across restart.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 cd /b/Jetbrains/projects/kimislop

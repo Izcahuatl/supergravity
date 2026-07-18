@@ -111,6 +111,7 @@ function renderSettings() {
       p.models = row.querySelector(".p-models").value.split(",").map((m) => m.trim()).filter(Boolean);
       await api.upsertProvider(p);
       await refreshProvidersFn();
+      renderSettings();
     });
     row.querySelector(".p-set-key").onclick = guard(async () => {
       const key = prompt(`API key for ${p.label} (stored in OS keychain):`);
