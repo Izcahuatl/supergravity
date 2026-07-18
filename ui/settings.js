@@ -54,6 +54,7 @@ export function initSettings(_state, refreshProviders) {
       }
       renderSidebar();
       e.target.reset();
+      renderWorkspaces();
     } catch (err) {
       alert(`Could not add workspace: ${err}`);
     }
@@ -193,6 +194,7 @@ export function renderWorkspaces() {
         $("chat-title").textContent = "Select or create a conversation";
         $("composer").classList.add("hidden");
         $("messages").innerHTML = "";
+        $("stop-agent").classList.add("hidden");
       }
       renderSidebar();
       renderWorkspaces();

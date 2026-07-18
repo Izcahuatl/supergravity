@@ -81,6 +81,7 @@ export function renderSidebar() {
           $("chat-title").textContent = "Select or create a conversation";
           $("composer").classList.add("hidden");
           $("messages").innerHTML = "";
+          $("stop-agent").classList.add("hidden");
         }
         renderSidebar();
       });

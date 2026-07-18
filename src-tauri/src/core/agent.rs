@@ -147,13 +147,26 @@ pub async fn run(req: AgentRequest) -> AgentOutcome {
             workspace_root: req.workspace_root.clone(),
         };
         let mut results: Vec<ContentPart> = Vec::new();
-        for (id, name, args_json) in calls {
+        let mut iter = calls.into_iter();
+        let mut cancelled = false;
+        while let Some((id, name, args_json)) = iter.next() {
             if req.cancel.is_cancelled() {
-                let _ = req.events.send(AgentEvent::Cancelled).await;
-                return AgentOutcome {
-                    produced,
-                    error: Some(Error::Cancelled),
-                };
+                // Close out this and all remaining calls so persisted history
+                // stays protocol-valid (every tool_call needs a tool_result).
+                results.push(ContentPart::ToolResult {
+                    tool_call_id: id.clone(),
+                    content: "cancelled by user".into(),
+                    is_error: true,
+                });
+                for (rid, _, _) in iter.by_ref() {
+                    results.push(ContentPart::ToolResult {
+                        tool_call_id: rid,
+                        content: "cancelled by user".into(),
+                        is_error: true,
+                    });
+                }
+                cancelled = true;
+                break;
             }
             let _ = req
                 .events
@@ -185,14 +198,24 @@ pub async fn run(req: AgentRequest) -> AgentOutcome {
                     if t.needs_approval() {
                         // Cancel must interrupt the approval wait, not just iterations.
                         let decision = tokio::select! {
-                            _ = req.cancel.cancelled() => {
-                                let _ = req.events.send(AgentEvent::Cancelled).await;
-                                return AgentOutcome {
-                                    produced,
-                                    error: Some(Error::Cancelled),
-                                };
+                            _ = req.cancel.cancelled() => None,
+                            res = req.approvals.check(&id, &name, &args_json) => Some(res),
+                        };
+                        let Some(decision) = decision else {
+                            results.push(ContentPart::ToolResult {
+                                tool_call_id: id.clone(),
+                                content: "cancelled by user".into(),
+                                is_error: true,
+                            });
+                            for (rid, _, _) in iter.by_ref() {
+                                results.push(ContentPart::ToolResult {
+                                    tool_call_id: rid,
+                                    content: "cancelled by user".into(),
+                                    is_error: true,
+                                });
                             }
-                            res = req.approvals.check(&id, &name, &args_json) => res,
+                            cancelled = true;
+                            break;
                         };
                         match decision {
                             Ok(true) => {}
@@ -233,14 +256,24 @@ pub async fn run(req: AgentRequest) -> AgentOutcome {
                     // Execute with cancellation — a hung tool (up to 300s shell
                     // timeout) must not ignore Stop.
                     let exec_result = tokio::select! {
-                        _ = req.cancel.cancelled() => {
-                            let _ = req.events.send(AgentEvent::Cancelled).await;
-                            return AgentOutcome {
-                                produced,
-                                error: Some(Error::Cancelled),
-                            };
+                        _ = req.cancel.cancelled() => None,
+                        res = t.execute(&ctx, &args_json) => Some(res),
+                    };
+                    let Some(exec_result) = exec_result else {
+                        results.push(ContentPart::ToolResult {
+                            tool_call_id: id.clone(),
+                            content: "cancelled by user".into(),
+                            is_error: true,
+                        });
+                        for (rid, _, _) in iter.by_ref() {
+                            results.push(ContentPart::ToolResult {
+                                tool_call_id: rid,
+                                content: "cancelled by user".into(),
+                                is_error: true,
+                            });
                         }
-                        res = t.execute(&ctx, &args_json) => res,
+                        cancelled = true;
+                        break;
                     };
                     match exec_result {
                         Ok(output) => {
@@ -283,8 +316,15 @@ pub async fn run(req: AgentRequest) -> AgentOutcome {
             role: Role::Tool,
             parts: results,
         };
-        messages.push(tool_msg.clone());
-        produced.push(tool_msg);
+        produced.push(tool_msg.clone());
+        if cancelled {
+            let _ = req.events.send(AgentEvent::Cancelled).await;
+            return AgentOutcome {
+                produced,
+                error: Some(Error::Cancelled),
+            };
+        }
+        messages.push(tool_msg);
     }
 
     let err = Error::Tool(format!("max iterations ({}) reached", req.max_iterations));
@@ -897,6 +937,90 @@ mod tests {
             result.error,
             Some(crate::core::error::Error::Cancelled)
         ));
+        let mut saw_cancelled = false;
+        while let Ok(ev) = events_rx.try_recv() {
+            if ev == AgentEvent::Cancelled {
+                saw_cancelled = true;
+            }
+        }
+        assert!(saw_cancelled);
+    }
+
+    #[tokio::test]
+    async fn cancel_during_tool_execute_produces_valid_history() {
+        // One turn with TWO tool calls: echo (instant) then sleep (30s).
+        let script = vec![vec![
+            Ok(ChatEvent::ToolCall {
+                id: "c1".into(),
+                name: "echo".into(),
+                args_json: "{\"a\":1}".into(),
+            }),
+            Ok(ChatEvent::ToolCall {
+                id: "c2".into(),
+                name: "sleep".into(),
+                args_json: "{}".into(),
+            }),
+            Ok(ChatEvent::Done),
+        ]];
+        let provider = std::sync::Arc::new(MockProvider::new(script));
+        let (events_tx, mut events_rx) = mpsc::channel(64);
+        let broker =
+            std::sync::Arc::new(ApprovalBroker::new(ApprovalMode::Auto, events_tx.clone()));
+        let dir = tempfile::tempdir().unwrap();
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let req = AgentRequest {
+            workspace_root: dir.path().to_path_buf(),
+            provider,
+            model: "m".into(),
+            history: vec![Message::text(Role::User, "go")],
+            tools: vec![
+                Box::new(EchoTool {
+                    needs_approval: false,
+                }),
+                Box::new(SleepTool),
+            ],
+            approvals: broker,
+            events: events_tx,
+            cancel: cancel.clone(),
+            max_iterations: 5,
+        };
+        let handle = tokio::spawn(run(req));
+        // Cancel ~100ms in: c1 has echoed, c2 (sleep) is mid-execute.
+        let canceller = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            canceller.cancel();
+        });
+        let result = tokio::time::timeout(std::time::Duration::from_secs(5), handle)
+            .await
+            .expect("run must return within 5s")
+            .unwrap();
+        assert!(matches!(
+            result.error,
+            Some(crate::core::error::Error::Cancelled)
+        ));
+        // Persisted history must stay protocol-valid: every assistant
+        // tool_call gets a matching tool_result, even on cancel.
+        let tool_msg = result
+            .produced
+            .iter()
+            .find(|m| m.role == Role::Tool)
+            .expect("a tool message must be produced even when cancelled");
+        assert_eq!(
+            tool_msg.parts,
+            vec![
+                ContentPart::ToolResult {
+                    tool_call_id: "c1".into(),
+                    content: "echoed: {\"a\":1}".into(),
+                    is_error: false
+                },
+                ContentPart::ToolResult {
+                    tool_call_id: "c2".into(),
+                    content: "cancelled by user".into(),
+                    is_error: true
+                },
+            ]
+        );
         let mut saw_cancelled = false;
         while let Ok(ev) = events_rx.try_recv() {
             if ev == AgentEvent::Cancelled {

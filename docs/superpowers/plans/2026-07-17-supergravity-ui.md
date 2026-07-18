@@ -2271,41 +2271,139 @@ From the final whole-app review. Two Critical: Stop must interrupt a running she
 - Modify: `src-tauri/src/bridge/commands.rs` + `agent_runner.rs`-adjacent `mod.rs` (list_local_models command)
 - Modify: `ui/settings.js` (inline key input, workspace remove, Ollama fetch-models), `ui/index.html` (workspace list container), `ui/app.js` (delete-conversation button, provider preference), `ui/events.js` (stale buttons), `ui/api.js` (listLocalModels), `ui/style.css` (conv-delete, key row)
 
-- [ ] **Step 1: Core — cancel during tool execution**
+- [ ] **Step 1: Core — cancel during tool execution (protocol-safe)**
 
-In `src-tauri/src/core/agent.rs`, replace the direct `t.execute(&ctx, &args_json).await` call with a select (drop of the future kills a running shell child via `kill_on_drop`):
+Cancelling inside the tool loop must close out the current AND all remaining tool calls with synthetic error results — a persisted assistant `tool_call` without a matching `tool_result` is rejected by OpenAI/Anthropic/Gemini on every later send, permanently poisoning the conversation.
+
+In `src-tauri/src/core/agent.rs`, restructure the tool-execution loop so all THREE cancel sites (loop-top check, approval-wait select, execute select) drain the remaining calls instead of returning immediately:
 
 ```rust
-                    // Execute with cancellation — a hung tool (up to 300s shell
-                    // timeout) must not ignore Stop.
-                    let exec_result = tokio::select! {
-                        _ = req.cancel.cancelled() => {
-                            let _ = req.events.send(AgentEvent::Cancelled).await;
-                            return AgentOutcome { produced, error: Some(Error::Cancelled) };
-                        }
-                        res = t.execute(&ctx, &args_json) => res,
-                    };
-                    match exec_result {
-                        Ok(output) => {
-                            let summary: String = output.chars().take(80).collect();
-                            let _ = req
-                                .events
-                                .send(AgentEvent::ToolCallFinished { tool_call_id: id.clone(), ok: true, summary })
-                                .await;
-                            ContentPart::ToolResult { tool_call_id: id, content: output, is_error: false }
-                        }
-                        Err(e) => {
-                            let _ = req
-                                .events
-                                .send(AgentEvent::ToolCallFinished { tool_call_id: id.clone(), ok: false, summary: e.to_string() })
-                                .await;
-                            ContentPart::ToolResult { tool_call_id: id, content: e.to_string(), is_error: true }
-                        }
-                    }
+        let ctx = ToolContext {
+            workspace_root: req.workspace_root.clone(),
+        };
+        let mut results: Vec<ContentPart> = Vec::new();
+        let mut iter = calls.into_iter();
+        let mut cancelled = false;
+        while let Some((id, name, args_json)) = iter.next() {
+            if req.cancel.is_cancelled() {
+                // Close out this and all remaining calls so persisted history
+                // stays protocol-valid (every tool_call needs a tool_result).
+                results.push(ContentPart::ToolResult {
+                    tool_call_id: id.clone(),
+                    content: "cancelled by user".into(),
+                    is_error: true,
+                });
+                for (rid, _, _) in iter.by_ref() {
+                    results.push(ContentPart::ToolResult {
+                        tool_call_id: rid,
+                        content: "cancelled by user".into(),
+                        is_error: true,
+                    });
+                }
+                cancelled = true;
+                break;
+            }
+            // … ToolCallProposed send, tool lookup, None arm unchanged …
+            // … approval gate …
+            let decision = tokio::select! {
+                _ = req.cancel.cancelled() => None,
+                res = req.approvals.check(&id, &name, &args_json) => Some(res),
+            };
+            let Some(decision) = decision else {
+                results.push(ContentPart::ToolResult {
+                    tool_call_id: id.clone(),
+                    content: "cancelled by user".into(),
+                    is_error: true,
+                });
+                for (rid, _, _) in iter.by_ref() {
+                    results.push(ContentPart::ToolResult {
+                        tool_call_id: rid,
+                        content: "cancelled by user".into(),
+                        is_error: true,
+                    });
+                }
+                cancelled = true;
+                break;
+            };
+            // … decision match unchanged …
+            // Execute with cancellation — a hung tool (up to 300s shell
+            // timeout) must not ignore Stop.
+            let exec_result = tokio::select! {
+                _ = req.cancel.cancelled() => None,
+                res = t.execute(&ctx, &args_json) => Some(res),
+            };
+            let Some(exec_result) = exec_result else {
+                results.push(ContentPart::ToolResult {
+                    tool_call_id: id.clone(),
+                    content: "cancelled by user".into(),
+                    is_error: true,
+                });
+                for (rid, _, _) in iter.by_ref() {
+                    results.push(ContentPart::ToolResult {
+                        tool_call_id: rid,
+                        content: "cancelled by user".into(),
+                        is_error: true,
+                    });
+                }
+                cancelled = true;
+                break;
+            };
+            // … exec_result match unchanged; results.push(result) …
+        }
+        let tool_msg = Message {
+            role: Role::Tool,
+            parts: results,
+        };
+        produced.push(tool_msg.clone());
+        if cancelled {
+            let _ = req.events.send(AgentEvent::Cancelled).await;
+            return AgentOutcome {
+                produced,
+                error: Some(Error::Cancelled),
+            };
+        }
+        messages.push(tool_msg);
 ```
 
-New test `cancel_during_tool_execute_aborts`: a `SleepTool` whose execute does `tokio::time::sleep(Duration::from_secs(30))`; start a run with a scripted tool call, cancel after ~100ms (spawn a task that sleeps 100ms then cancels the token), assert the run returns within 5s with `matches!(outcome.error, Some(Error::Cancelled))`.
+Keep the existing `cancel_during_tool_execute_aborts` test (still passes), and add `cancel_during_tool_execute_produces_valid_history`: script one turn with TWO tool calls (echo + SleepTool), cancel ~100ms in, assert `outcome.error` is `Some(Error::Cancelled)` (with a 5s timeout on the whole run), and that `produced` contains a `Role::Tool` message with exactly 2 `ToolResult` parts — c1 echoed (`is_error: false`), c2 `"cancelled by user"` (`is_error: true`).
 
+- [ ] **Step 1b: Bridge — remove_workspace cancels running agents**
+
+In `bridge/commands.rs`'s `remove_workspace_impl`, cancel any agents running in that workspace's conversations BEFORE deleting (parity with `delete_conversation_impl`):
+
+```rust
+pub async fn remove_workspace_impl(state: &AppState, id: String) -> Result<()> {
+    let convs = {
+        let s = state.store.clone();
+        let wid = id.clone();
+        block(move || s.list_conversations(&wid)).await?
+    };
+    {
+        let agents = state.agents.lock().unwrap();
+        for c in &convs {
+            if let Some(agent) = agents.get(&c.id) {
+                agent.cancel.cancel();
+            }
+        }
+    }
+    let s = state.store.clone();
+    block(move || s.remove_workspace(&id)).await
+}
+```
+
+Also in `list_local_models_impl`: check the response status before parsing (surface server errors instead of a misleading empty list):
+
+```rust
+    let resp = client.get(&url).send().await.map_err(Error::Http)?;
+    if !resp.status().is_success() {
+        let status = resp.status().as_u16();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(Error::Provider { status, body: body.chars().take(200).collect() });
+    }
+    let body: serde_json::Value = resp.json().await.map_err(Error::Http)?;
+```
+
+UI one-liners (same task): hide `#stop-agent` in BOTH active-view-clearing blocks (`ui/app.js` delete-conversation handler and `ui/settings.js` remove-workspace handler: `$("stop-agent").classList.add("hidden");`), and call `renderWorkspaces()` at the end of the workspace-add form handler in `ui/settings.js`.
 - [ ] **Step 2: Bridge — `list_local_models` command (Ollama /api/tags)**
 
 In `bridge/commands.rs`:

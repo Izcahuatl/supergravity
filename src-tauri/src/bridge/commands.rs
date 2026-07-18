@@ -36,6 +36,19 @@ pub async fn add_workspace_impl(state: &AppState, name: String, path: String) ->
 }
 
 pub async fn remove_workspace_impl(state: &AppState, id: String) -> Result<()> {
+    let convs = {
+        let s = state.store.clone();
+        let wid = id.clone();
+        block(move || s.list_conversations(&wid)).await?
+    };
+    {
+        let agents = state.agents.lock().unwrap();
+        for c in &convs {
+            if let Some(agent) = agents.get(&c.id) {
+                agent.cancel.cancel();
+            }
+        }
+    }
     let s = state.store.clone();
     block(move || s.remove_workspace(&id)).await
 }
@@ -185,6 +198,14 @@ pub async fn list_local_models_impl(state: &AppState, provider_id: String) -> Re
         .build()
         .map_err(Error::Http)?;
     let resp = client.get(&url).send().await.map_err(Error::Http)?;
+    if !resp.status().is_success() {
+        let status = resp.status().as_u16();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(Error::Provider {
+            status,
+            body: body.chars().take(200).collect(),
+        });
+    }
     let body: serde_json::Value = resp.json().await.map_err(Error::Http)?;
     Ok(parse_tags(&body))
 }
