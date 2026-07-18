@@ -1588,19 +1588,26 @@ git commit -m "feat(ui): sidebar, workspace/conversation navigation, model picke
 - Create: `ui/render.js` (replace stub), `ui/markdown.js`, `ui/events.js`
 - Modify: `ui/app.js` (wire send/stop + event handler), `ui/style.css` (message bubbles, cards)
 
-- [ ] **Step 1: `ui/markdown.js` — minimal safe markdown**
+- [x] **Step 1: `ui/markdown.js` — minimal safe markdown**
 
 ```js
 // Minimal markdown: escapes HTML, then handles ``` fences, `code`, **bold**, *italic*, lists, paragraphs.
 export function renderMarkdown(src) {
   const esc = (s) =>
     s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-  const inline = (s) =>
-    esc(s)
-      .replace(/`([^`]+)`/g, "<code>$1</code>")
+  const inline = (s) => {
+    // Protect code spans from later passes (bold/italic must not apply inside code).
+    const codes = [];
+    let out = esc(s).replace(/`([^`]+)`/g, (_, c) => {
+      codes.push(c);
+      return `\u0000${codes.length - 1}\u0000`;
+    });
+    out = out
       .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
       .replace(/\*([^*]+)\*/g, "<em>$1</em>")
       .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    return out.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[Number(i)]}</code>`);
+  };
   // Split on ``` fences: odd indices are code blocks (first line = language hint, skipped).
   let html = "";
   const parts = src.split("```");
@@ -1613,16 +1620,35 @@ export function renderMarkdown(src) {
       const paragraphs = parts[i].split(/\n{2,}/);
       for (const p of paragraphs) {
         if (!p.trim()) continue;
-        if (/^\s*[-*] /m.test(p)) {
-          const items = p
-            .split("\n")
-            .filter((l) => /^\s*[-*] /.test(l))
-            .map((l) => `<li>${inline(l.replace(/^\s*[-*] /, ""))}</li>`)
-            .join("");
-          html += `<ul>${items}</ul>`;
-        } else {
-          html += `<p>${inline(p.trim()).replace(/\n/g, "<br>")}</p>`;
+        // Line-by-line: consecutive list lines form a <ul>; other lines form
+        // paragraphs — mixed list+text blocks keep both (no dropped lines).
+        let listItems = [];
+        let para = [];
+        const flushPara = () => {
+          if (para.length) {
+            // Single newlines become <br> — LLM output uses them structurally.
+            html += `<p>${para.map((l) => inline(l)).join("<br>")}</p>`;
+            para = [];
+          }
+        };
+        const flushList = () => {
+          if (listItems.length) {
+            html += `<ul>${listItems.join("")}</ul>`;
+            listItems = [];
+          }
+        };
+        for (const line of p.split("\n")) {
+          const m = line.match(/^\s*[-*] (.*)$/);
+          if (m) {
+            flushPara();
+            listItems.push(`<li>${inline(m[1])}</li>`);
+          } else {
+            flushList();
+            para.push(line);
+          }
         }
+        flushList();
+        flushPara();
       }
     }
   }
@@ -1632,7 +1658,7 @@ export function renderMarkdown(src) {
 
 (Note: the plan's earlier sketch loop is gone — the final file contains only the `parts`-based implementation above.)
 
-- [ ] **Step 2: `ui/render.js` — message history + live elements (replaces stub)**
+- [x] **Step 2: `ui/render.js` — message history + live elements (replaces stub)**
 
 ```js
 import { renderMarkdown } from "./markdown.js";
@@ -1662,8 +1688,15 @@ export function renderTextPart(container, text) {
 export function renderToolCallCard(call) {
   const card = document.createElement("div");
   card.className = "tool-card";
-  card.innerHTML = `<div class="tool-head">🔧 ${call.name}</div><pre class="tool-args"></pre><div class="tool-status"></div>`;
-  card.querySelector(".tool-args").textContent = prettyArgs(call.args_json);
+  const head = document.createElement("div");
+  head.className = "tool-head";
+  head.textContent = `🔧 ${call.name}`;
+  const args = document.createElement("pre");
+  args.className = "tool-args";
+  args.textContent = prettyArgs(call.args_json);
+  const status = document.createElement("div");
+  status.className = "tool-status";
+  card.append(head, args, status);
   return card;
 }
 
@@ -1716,40 +1749,57 @@ export function renderMessages(msgs) {
 }
 ```
 
-- [ ] **Step 3: `ui/events.js` — live agent event handling**
+- [x] **Step 3: `ui/events.js` — live agent event handling**
 
 ```js
 import { state } from "./app.js";
+import { api } from "./api.js";
 import { addBubble, renderTextPart, renderToolCallCard, prettyArgs } from "./render.js";
 
 const $ = (id) => document.getElementById(id);
+
+// Per-conversation live state, so switching conversations mid-run loses
+// nothing: streamed text accumulates here (not only in the DOM), and pending
+// approvals are remembered until resolved or finished.
+const streamBuffers = new Map(); // conversation_id -> raw streamed text
+export const pendingApprovals = new Map(); // conversation_id -> {request_id, tool_call_id, name, args_json}
+
 let currentTextBubble = null;
 
-function finishTextBubble() {
-  currentTextBubble = null;
-}
-
-// NOTE: the `state.running` bookkeeping lives in app.js's onAgentEvent wrapper —
-// this module only renders events for the ACTIVE conversation.
 export function handleAgentEvent(payload) {
   const { conversation_id, event } = payload;
-  if (state.active?.id !== conversation_id) return;
+
+  // Non-active conversations: track state only (no DOM).
+  if (state.active?.id !== conversation_id) {
+    if (event.kind === "text_delta") {
+      streamBuffers.set(conversation_id, (streamBuffers.get(conversation_id) || "") + event.data);
+    } else if (event.kind === "approval_requested") {
+      pendingApprovals.set(conversation_id, { ...event.data });
+    } else if (event.kind === "tool_call_finished") {
+      pendingApprovals.delete(conversation_id);
+    } else if (["message_done", "error", "cancelled"].includes(event.kind)) {
+      streamBuffers.delete(conversation_id);
+      pendingApprovals.delete(conversation_id);
+    }
+    return;
+  }
 
   switch (event.kind) {
     case "text_delta": {
-      if (!currentTextBubble) {
+      const raw = (streamBuffers.get(conversation_id) || "") + event.data;
+      streamBuffers.set(conversation_id, raw);
+      // The bubble may have been detached by a history re-render — recreate it.
+      if (!currentTextBubble || !currentTextBubble.isConnected) {
         currentTextBubble = addBubble("assistant");
-        currentTextBubble._raw = "";
       }
-      currentTextBubble._raw += event.data;
       currentTextBubble.innerHTML = "";
-      renderTextPart(currentTextBubble, currentTextBubble._raw);
+      renderTextPart(currentTextBubble, raw);
       const el = document.getElementById("messages");
       el.scrollTop = el.scrollHeight;
       break;
     }
     case "tool_call_proposed": {
-      finishTextBubble();
+      currentTextBubble = null;
       const card = renderToolCallCard({ name: event.data.name, args_json: event.data.args_json });
       card.dataset.callId = event.data.tool_call_id;
       card.querySelector(".tool-status").textContent = "running…";
@@ -1757,53 +1807,43 @@ export function handleAgentEvent(payload) {
       break;
     }
     case "approval_requested": {
-      finishTextBubble();
-      const card = document.createElement("div");
-      card.className = "approval-card";
-      card.innerHTML = `<div class="tool-head">⚠ ${event.data.name} needs approval</div><pre class="tool-args"></pre>
-        <div class="approval-buttons"><button class="approve">Approve</button><button class="deny">Deny</button></div>`;
-      card.querySelector(".tool-args").textContent = prettyArgs(event.data.args_json);
-      card.querySelector(".approve").onclick = () => {
-        window.__TAURI__.core.invoke("resolve_approval", {
-          conversationId: conversation_id,
-          requestId: event.data.request_id,
-          allow: true,
-        });
-        card.querySelector(".approval-buttons").remove();
-      };
-      card.querySelector(".deny").onclick = () => {
-        window.__TAURI__.core.invoke("resolve_approval", {
-          conversationId: conversation_id,
-          requestId: event.data.request_id,
-          allow: false,
-        });
-        card.querySelector(".approval-buttons").remove();
-      };
-      addBubble("assistant").appendChild(card);
+      currentTextBubble = null;
+      pendingApprovals.set(conversation_id, { ...event.data });
+      addBubble("assistant").appendChild(buildApprovalCard(conversation_id, event.data));
       break;
     }
     case "tool_call_finished": {
+      pendingApprovals.delete(conversation_id);
       const card = document.querySelector(`[data-call-id="${event.data.tool_call_id}"]`);
       if (card) {
         const status = card.querySelector(".tool-status");
-        status.textContent = (event.data.ok ? "✓ " : "✗ ") + event.data.summary.slice(0, 200);
-        status.className = "tool-status " + (event.data.ok ? "ok" : "err");
+        if (status) {
+          status.textContent = (event.data.ok ? "✓ " : "✗ ") + event.data.summary.slice(0, 200);
+          status.className = "tool-status " + (event.data.ok ? "ok" : "err");
+        }
+        card.querySelector(".approval-buttons")?.remove();
       }
       break;
     }
     case "message_done":
-      finishTextBubble();
+      currentTextBubble = null;
+      streamBuffers.delete(conversation_id);
+      pendingApprovals.delete(conversation_id);
       $("stop-agent").classList.add("hidden");
       break;
     case "error": {
-      finishTextBubble();
+      currentTextBubble = null;
+      streamBuffers.delete(conversation_id);
+      pendingApprovals.delete(conversation_id);
       const bubble = addBubble("error");
       bubble.textContent = `Error: ${event.data}`;
       $("stop-agent").classList.add("hidden");
       break;
     }
     case "cancelled": {
-      finishTextBubble();
+      currentTextBubble = null;
+      streamBuffers.delete(conversation_id);
+      pendingApprovals.delete(conversation_id);
       const bubble = addBubble("error");
       bubble.textContent = "Cancelled.";
       $("stop-agent").classList.add("hidden");
@@ -1812,27 +1852,92 @@ export function handleAgentEvent(payload) {
   }
 }
 
+export function buildApprovalCard(conversationId, data) {
+  const card = document.createElement("div");
+  card.className = "approval-card";
+  card.dataset.callId = data.tool_call_id;
+  const head = document.createElement("div");
+  head.className = "tool-head";
+  head.textContent = `⚠ ${data.name} needs approval`;
+  const args = document.createElement("pre");
+  args.className = "tool-args";
+  args.textContent = prettyArgs(data.args_json);
+  const buttons = document.createElement("div");
+  buttons.className = "approval-buttons";
+  const approve = document.createElement("button");
+  approve.className = "approve";
+  approve.textContent = "Approve";
+  approve.onclick = () => {
+    api.resolveApproval(conversationId, data.request_id, true).catch(() => {});
+    buttons.remove();
+  };
+  const deny = document.createElement("button");
+  deny.className = "deny";
+  deny.textContent = "Deny";
+  deny.onclick = () => {
+    api.resolveApproval(conversationId, data.request_id, false).catch(() => {});
+    buttons.remove();
+  };
+  buttons.append(approve, deny);
+  card.append(head, args, buttons);
+  return card;
+}
+
+/// Called by selectConversation after rendering history: re-render any live
+/// approval card for this conversation (stream text resumes on next delta).
+export function resumeLiveState(conversationId) {
+  currentTextBubble = null;
+  const pending = pendingApprovals.get(conversationId);
+  if (pending) {
+    addBubble("assistant").appendChild(buildApprovalCard(conversationId, pending));
+  }
+}
+
 export function resetEventState() {
-  finishTextBubble();
+  currentTextBubble = null;
 }
 ```
 
-- [ ] **Step 4: Wire send/stop/events in `ui/app.js` — append (and import `handleAgentEvent`, `resetEventState`)**
+- [x] **Step 4: Wire send/stop/events in `ui/app.js` — append (and import `handleAgentEvent`, `resetEventState`)**
+
+Also make two edits to `selectConversation` (from U4): sync the stop button to the conversation's live state, and resume live approval/stream state after rendering history:
 
 ```js
-import { handleAgentEvent, resetEventState } from "./events.js";
+export async function selectConversation(conv) {
+  state.active = conv;
+  renderSidebar(); // instant feedback, before the fetch
+  $("chat-title").textContent = conv.title;
+  $("composer").classList.remove("hidden");
+  renderModelPicker();
+  renderModeToggle(conv.approval_mode);
+  $("stop-agent").classList.toggle("hidden", !state.running.has(conv.id));
+  const msgs = await api.getMessages(conv.id);
+  // A newer click may have switched away while the fetch was in flight.
+  if (state.active?.id !== conv.id) return;
+  renderMessages(msgs);
+  resumeLiveState(conv.id);
+  api.setUiState(conv.workspace_id, conv.id).catch(() => {});
+}
+```
+
+```js
+import { handleAgentEvent, resetEventState, resumeLiveState } from "./events.js";
 
 api.onAgentEvent((payload) => {
   // Running-set bookkeeping (sidebar dots) for ALL conversations, then
-  // delegate rendering to events.js (which no-ops for non-active ones).
+  // delegate rendering to events.js. Only re-render the sidebar on change.
   const k = payload.event.kind;
-  if (["text_delta", "tool_call_proposed", "approval_requested"].includes(k)) {
-    state.running.add(payload.conversation_id);
+  const cid = payload.conversation_id;
+  let changed = false;
+  if (["text_delta", "tool_call_proposed", "approval_requested"].includes(k) && !state.running.has(cid)) {
+    state.running.add(cid);
+    changed = true;
   }
-  if (["message_done", "error", "cancelled"].includes(k)) {
-    state.running.delete(payload.conversation_id);
+  if (["message_done", "error", "cancelled"].includes(k) && state.running.has(cid)) {
+    state.running.delete(cid);
+    changed = true;
   }
-  renderSidebar();
+  if (changed) renderSidebar();
   handleAgentEvent(payload);
 });
 
@@ -1847,26 +1952,32 @@ $("input").addEventListener("keydown", (e) => {
 async function send() {
   const text = $("input").value.trim();
   if (!text || !state.active) return;
-  if (state.running.has(state.active.id)) return;
+  const cid = state.active.id;
+  if (state.running.has(cid)) return;
   $("input").value = "";
   resetEventState();
   const bubble = document.createElement("div");
   bubble.className = "bubble user";
   bubble.textContent = text;
   document.getElementById("messages").appendChild(bubble);
+  // Mark running NOW (the first event may lag) — closes the double-send window.
+  state.running.add(cid);
+  renderSidebar();
   $("stop-agent").classList.remove("hidden");
   try {
-    await api.sendMessage(state.active.id, text);
+    await api.sendMessage(cid, text);
     // The bridge may have auto-renamed the conversation on first send — refresh.
     const convs = await api.listConversations(state.active.workspace_id);
     state.conversations.set(state.active.workspace_id, convs);
-    const fresh = convs.find((c) => c.id === state.active.id);
+    const fresh = convs.find((c) => c.id === cid);
     if (fresh) {
       state.active = fresh;
       $("chat-title").textContent = fresh.title;
     }
     renderSidebar();
   } catch (e) {
+    state.running.delete(cid);
+    renderSidebar();
     const err = document.createElement("div");
     err.className = "bubble error";
     err.textContent = `Error: ${e}`;
@@ -1880,7 +1991,7 @@ $("stop-agent").onclick = () => {
 };
 ```
 
-- [ ] **Step 5: Extend `ui/style.css` — bubbles and cards**
+- [x] **Step 5: Extend `ui/style.css` — bubbles and cards**
 
 ```css
 .bubble { max-width: 80%; margin: 6px 0; padding: 10px 14px; border-radius: 10px; }
@@ -1909,11 +2020,11 @@ $("stop-agent").onclick = () => {
 #stop-agent { color: var(--danger); }
 ```
 
-- [ ] **Step 6: Verify**
+- [x] **Step 6: Verify**
 
 `cargo tauri dev` — with Ollama (if present) or a configured provider: send a message, see streaming text; approvals appear for write/shell in Manual mode; stop button cancels. Without keys: verify rendering by checking message history renders after a mocked run (or accept code review + U7 smoke checklist). Minimum bar: build clean, no console errors, manual interaction works where a provider exists.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 cd /b/Jetbrains/projects/kimislop

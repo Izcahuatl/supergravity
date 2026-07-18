@@ -33,7 +33,8 @@ export function renderMarkdown(src) {
         let para = [];
         const flushPara = () => {
           if (para.length) {
-            html += `<p>${inline(para.join(" ").trim())}</p>`;
+            // Single newlines become <br> — LLM output uses them structurally.
+            html += `<p>${para.map((l) => inline(l)).join("<br>")}</p>`;
             para = [];
           }
         };

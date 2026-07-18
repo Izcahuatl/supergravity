@@ -74,11 +74,13 @@ export function handleAgentEvent(payload) {
     case "message_done":
       currentTextBubble = null;
       streamBuffers.delete(conversation_id);
+      pendingApprovals.delete(conversation_id);
       $("stop-agent").classList.add("hidden");
       break;
     case "error": {
       currentTextBubble = null;
       streamBuffers.delete(conversation_id);
+      pendingApprovals.delete(conversation_id);
       const bubble = addBubble("error");
       bubble.textContent = `Error: ${event.data}`;
       $("stop-agent").classList.add("hidden");
@@ -87,6 +89,7 @@ export function handleAgentEvent(payload) {
     case "cancelled": {
       currentTextBubble = null;
       streamBuffers.delete(conversation_id);
+      pendingApprovals.delete(conversation_id);
       const bubble = addBubble("error");
       bubble.textContent = "Cancelled.";
       $("stop-agent").classList.add("hidden");
