@@ -160,3 +160,15 @@ button:hover, select:hover { border-color: var(--accent); }
 .approval-buttons .approve { border-color: var(--ok); }
 .approval-buttons .deny { border-color: var(--danger); }
 #stop-agent { color: var(--danger); }
+
+.provider-row {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  margin: 8px 0;
+}
+.provider-head { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+.badge { font-size: 11px; padding: 2px 6px; border-radius: 4px; }
+.badge.ok { background: #1d3a24; color: var(--ok); }
+.badge.warn { background: #3a2f1d; color: var(--warn); }
+.provider-actions { display: flex; gap: 8px; margin-top: 6px; }
