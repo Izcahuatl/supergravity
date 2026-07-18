@@ -25,8 +25,15 @@ export function renderTextPart(container, text) {
 export function renderToolCallCard(call) {
   const card = document.createElement("div");
   card.className = "tool-card";
-  card.innerHTML = `<div class="tool-head">🔧 ${call.name}</div><pre class="tool-args"></pre><div class="tool-status"></div>`;
-  card.querySelector(".tool-args").textContent = prettyArgs(call.args_json);
+  const head = document.createElement("div");
+  head.className = "tool-head";
+  head.textContent = `🔧 ${call.name}`;
+  const args = document.createElement("pre");
+  args.className = "tool-args";
+  args.textContent = prettyArgs(call.args_json);
+  const status = document.createElement("div");
+  status.className = "tool-status";
+  card.append(head, args, status);
   return card;
 }
 

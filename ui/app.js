@@ -1,7 +1,7 @@
 import { api } from "./api.js";
 import { renderMessages } from "./render.js";
 import { initSettings } from "./settings.js";
-import { handleAgentEvent, resetEventState } from "./events.js";
+import { handleAgentEvent, resetEventState, resumeLiveState } from "./events.js";
 
 export const state = {
   workspaces: [],
@@ -76,15 +76,17 @@ export function renderSidebar() {
 
 export async function selectConversation(conv) {
   state.active = conv;
-  renderSidebar();
+  renderSidebar(); // instant feedback, before the fetch
   $("chat-title").textContent = conv.title;
   $("composer").classList.remove("hidden");
   renderModelPicker();
   renderModeToggle(conv.approval_mode);
+  $("stop-agent").classList.toggle("hidden", !state.running.has(conv.id));
   const msgs = await api.getMessages(conv.id);
   // A newer click may have switched away while the fetch was in flight.
   if (state.active?.id !== conv.id) return;
   renderMessages(msgs);
+  resumeLiveState(conv.id);
   api.setUiState(conv.workspace_id, conv.id).catch(() => {});
 }
 
@@ -162,15 +164,19 @@ boot().catch((e) => {
 
 api.onAgentEvent((payload) => {
   // Running-set bookkeeping (sidebar dots) for ALL conversations, then
-  // delegate rendering to events.js (which no-ops for non-active ones).
+  // delegate rendering to events.js. Only re-render the sidebar on change.
   const k = payload.event.kind;
-  if (["text_delta", "tool_call_proposed", "approval_requested"].includes(k)) {
-    state.running.add(payload.conversation_id);
+  const cid = payload.conversation_id;
+  let changed = false;
+  if (["text_delta", "tool_call_proposed", "approval_requested"].includes(k) && !state.running.has(cid)) {
+    state.running.add(cid);
+    changed = true;
   }
-  if (["message_done", "error", "cancelled"].includes(k)) {
-    state.running.delete(payload.conversation_id);
+  if (["message_done", "error", "cancelled"].includes(k) && state.running.has(cid)) {
+    state.running.delete(cid);
+    changed = true;
   }
-  renderSidebar();
+  if (changed) renderSidebar();
   handleAgentEvent(payload);
 });
 
@@ -185,26 +191,32 @@ $("input").addEventListener("keydown", (e) => {
 async function send() {
   const text = $("input").value.trim();
   if (!text || !state.active) return;
-  if (state.running.has(state.active.id)) return;
+  const cid = state.active.id;
+  if (state.running.has(cid)) return;
   $("input").value = "";
   resetEventState();
   const bubble = document.createElement("div");
   bubble.className = "bubble user";
   bubble.textContent = text;
   document.getElementById("messages").appendChild(bubble);
+  // Mark running NOW (the first event may lag) — closes the double-send window.
+  state.running.add(cid);
+  renderSidebar();
   $("stop-agent").classList.remove("hidden");
   try {
-    await api.sendMessage(state.active.id, text);
+    await api.sendMessage(cid, text);
     // The bridge may have auto-renamed the conversation on first send — refresh.
     const convs = await api.listConversations(state.active.workspace_id);
     state.conversations.set(state.active.workspace_id, convs);
-    const fresh = convs.find((c) => c.id === state.active.id);
+    const fresh = convs.find((c) => c.id === cid);
     if (fresh) {
       state.active = fresh;
       $("chat-title").textContent = fresh.title;
     }
     renderSidebar();
   } catch (e) {
+    state.running.delete(cid);
+    renderSidebar();
     const err = document.createElement("div");
     err.className = "bubble error";
     err.textContent = `Error: ${e}`;

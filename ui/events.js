@@ -1,34 +1,51 @@
 import { state } from "./app.js";
+import { api } from "./api.js";
 import { addBubble, renderTextPart, renderToolCallCard, prettyArgs } from "./render.js";
 
 const $ = (id) => document.getElementById(id);
+
+// Per-conversation live state, so switching conversations mid-run loses
+// nothing: streamed text accumulates here (not only in the DOM), and pending
+// approvals are remembered until resolved or finished.
+const streamBuffers = new Map(); // conversation_id -> raw streamed text
+export const pendingApprovals = new Map(); // conversation_id -> {request_id, tool_call_id, name, args_json}
+
 let currentTextBubble = null;
 
-function finishTextBubble() {
-  currentTextBubble = null;
-}
-
-// NOTE: the `state.running` bookkeeping lives in app.js's onAgentEvent wrapper —
-// this module only renders events for the ACTIVE conversation.
 export function handleAgentEvent(payload) {
   const { conversation_id, event } = payload;
-  if (state.active?.id !== conversation_id) return;
+
+  // Non-active conversations: track state only (no DOM).
+  if (state.active?.id !== conversation_id) {
+    if (event.kind === "text_delta") {
+      streamBuffers.set(conversation_id, (streamBuffers.get(conversation_id) || "") + event.data);
+    } else if (event.kind === "approval_requested") {
+      pendingApprovals.set(conversation_id, { ...event.data });
+    } else if (event.kind === "tool_call_finished") {
+      pendingApprovals.delete(conversation_id);
+    } else if (["message_done", "error", "cancelled"].includes(event.kind)) {
+      streamBuffers.delete(conversation_id);
+      pendingApprovals.delete(conversation_id);
+    }
+    return;
+  }
 
   switch (event.kind) {
     case "text_delta": {
-      if (!currentTextBubble) {
+      const raw = (streamBuffers.get(conversation_id) || "") + event.data;
+      streamBuffers.set(conversation_id, raw);
+      // The bubble may have been detached by a history re-render — recreate it.
+      if (!currentTextBubble || !currentTextBubble.isConnected) {
         currentTextBubble = addBubble("assistant");
-        currentTextBubble._raw = "";
       }
-      currentTextBubble._raw += event.data;
       currentTextBubble.innerHTML = "";
-      renderTextPart(currentTextBubble, currentTextBubble._raw);
+      renderTextPart(currentTextBubble, raw);
       const el = document.getElementById("messages");
       el.scrollTop = el.scrollHeight;
       break;
     }
     case "tool_call_proposed": {
-      finishTextBubble();
+      currentTextBubble = null;
       const card = renderToolCallCard({ name: event.data.name, args_json: event.data.args_json });
       card.dataset.callId = event.data.tool_call_id;
       card.querySelector(".tool-status").textContent = "running…";
@@ -36,53 +53,40 @@ export function handleAgentEvent(payload) {
       break;
     }
     case "approval_requested": {
-      finishTextBubble();
-      const card = document.createElement("div");
-      card.className = "approval-card";
-      card.innerHTML = `<div class="tool-head">⚠ ${event.data.name} needs approval</div><pre class="tool-args"></pre>
-        <div class="approval-buttons"><button class="approve">Approve</button><button class="deny">Deny</button></div>`;
-      card.querySelector(".tool-args").textContent = prettyArgs(event.data.args_json);
-      card.querySelector(".approve").onclick = () => {
-        window.__TAURI__.core.invoke("resolve_approval", {
-          conversationId: conversation_id,
-          requestId: event.data.request_id,
-          allow: true,
-        });
-        card.querySelector(".approval-buttons").remove();
-      };
-      card.querySelector(".deny").onclick = () => {
-        window.__TAURI__.core.invoke("resolve_approval", {
-          conversationId: conversation_id,
-          requestId: event.data.request_id,
-          allow: false,
-        });
-        card.querySelector(".approval-buttons").remove();
-      };
-      addBubble("assistant").appendChild(card);
+      currentTextBubble = null;
+      pendingApprovals.set(conversation_id, { ...event.data });
+      addBubble("assistant").appendChild(buildApprovalCard(conversation_id, event.data));
       break;
     }
     case "tool_call_finished": {
+      pendingApprovals.delete(conversation_id);
       const card = document.querySelector(`[data-call-id="${event.data.tool_call_id}"]`);
       if (card) {
         const status = card.querySelector(".tool-status");
-        status.textContent = (event.data.ok ? "✓ " : "✗ ") + event.data.summary.slice(0, 200);
-        status.className = "tool-status " + (event.data.ok ? "ok" : "err");
+        if (status) {
+          status.textContent = (event.data.ok ? "✓ " : "✗ ") + event.data.summary.slice(0, 200);
+          status.className = "tool-status " + (event.data.ok ? "ok" : "err");
+        }
+        card.querySelector(".approval-buttons")?.remove();
       }
       break;
     }
     case "message_done":
-      finishTextBubble();
+      currentTextBubble = null;
+      streamBuffers.delete(conversation_id);
       $("stop-agent").classList.add("hidden");
       break;
     case "error": {
-      finishTextBubble();
+      currentTextBubble = null;
+      streamBuffers.delete(conversation_id);
       const bubble = addBubble("error");
       bubble.textContent = `Error: ${event.data}`;
       $("stop-agent").classList.add("hidden");
       break;
     }
     case "cancelled": {
-      finishTextBubble();
+      currentTextBubble = null;
+      streamBuffers.delete(conversation_id);
       const bubble = addBubble("error");
       bubble.textContent = "Cancelled.";
       $("stop-agent").classList.add("hidden");
@@ -91,6 +95,47 @@ export function handleAgentEvent(payload) {
   }
 }
 
+export function buildApprovalCard(conversationId, data) {
+  const card = document.createElement("div");
+  card.className = "approval-card";
+  card.dataset.callId = data.tool_call_id;
+  const head = document.createElement("div");
+  head.className = "tool-head";
+  head.textContent = `⚠ ${data.name} needs approval`;
+  const args = document.createElement("pre");
+  args.className = "tool-args";
+  args.textContent = prettyArgs(data.args_json);
+  const buttons = document.createElement("div");
+  buttons.className = "approval-buttons";
+  const approve = document.createElement("button");
+  approve.className = "approve";
+  approve.textContent = "Approve";
+  approve.onclick = () => {
+    api.resolveApproval(conversationId, data.request_id, true).catch(() => {});
+    buttons.remove();
+  };
+  const deny = document.createElement("button");
+  deny.className = "deny";
+  deny.textContent = "Deny";
+  deny.onclick = () => {
+    api.resolveApproval(conversationId, data.request_id, false).catch(() => {});
+    buttons.remove();
+  };
+  buttons.append(approve, deny);
+  card.append(head, args, buttons);
+  return card;
+}
+
+/// Called by selectConversation after rendering history: re-render any live
+/// approval card for this conversation (stream text resumes on next delta).
+export function resumeLiveState(conversationId) {
+  currentTextBubble = null;
+  const pending = pendingApprovals.get(conversationId);
+  if (pending) {
+    addBubble("assistant").appendChild(buildApprovalCard(conversationId, pending));
+  }
+}
+
 export function resetEventState() {
-  finishTextBubble();
+  currentTextBubble = null;
 }

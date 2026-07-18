@@ -2,12 +2,19 @@
 export function renderMarkdown(src) {
   const esc = (s) =>
     s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-  const inline = (s) =>
-    esc(s)
-      .replace(/`([^`]+)`/g, "<code>$1</code>")
+  const inline = (s) => {
+    // Protect code spans from later passes (bold/italic must not apply inside code).
+    const codes = [];
+    let out = esc(s).replace(/`([^`]+)`/g, (_, c) => {
+      codes.push(c);
+      return `\u0000${codes.length - 1}\u0000`;
+    });
+    out = out
       .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
       .replace(/\*([^*]+)\*/g, "<em>$1</em>")
       .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    return out.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[Number(i)]}</code>`);
+  };
   // Split on ``` fences: odd indices are code blocks (first line = language hint, skipped).
   let html = "";
   const parts = src.split("```");
@@ -20,16 +27,34 @@ export function renderMarkdown(src) {
       const paragraphs = parts[i].split(/\n{2,}/);
       for (const p of paragraphs) {
         if (!p.trim()) continue;
-        if (/^\s*[-*] /m.test(p)) {
-          const items = p
-            .split("\n")
-            .filter((l) => /^\s*[-*] /.test(l))
-            .map((l) => `<li>${inline(l.replace(/^\s*[-*] /, ""))}</li>`)
-            .join("");
-          html += `<ul>${items}</ul>`;
-        } else {
-          html += `<p>${inline(p.trim()).replace(/\n/g, "<br>")}</p>`;
+        // Line-by-line: consecutive list lines form a <ul>; other lines form
+        // paragraphs — mixed list+text blocks keep both (no dropped lines).
+        let listItems = [];
+        let para = [];
+        const flushPara = () => {
+          if (para.length) {
+            html += `<p>${inline(para.join(" ").trim())}</p>`;
+            para = [];
+          }
+        };
+        const flushList = () => {
+          if (listItems.length) {
+            html += `<ul>${listItems.join("")}</ul>`;
+            listItems = [];
+          }
+        };
+        for (const line of p.split("\n")) {
+          const m = line.match(/^\s*[-*] (.*)$/);
+          if (m) {
+            flushPara();
+            listItems.push(`<li>${inline(m[1])}</li>`);
+          } else {
+            flushList();
+            para.push(line);
+          }
         }
+        flushList();
+        flushPara();
       }
     }
   }
