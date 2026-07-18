@@ -2262,6 +2262,272 @@ git commit -m "chore: final verification — release build green"
 
 ---
 
+### Task U8: V1 polish (final review fixes)
+
+From the final whole-app review. Two Critical: Stop must interrupt a running shell command (spec requirement), and `window.prompt()` is unsupported on WebView2 (key entry silently broken). Plus important UX gaps: no remove-workspace UI, no delete-conversation UI, key-requiring default provider on first run, stale approval buttons after cancel.
+
+**Files:**
+- Modify: `src-tauri/src/core/agent.rs` (cancel during tool execute + test)
+- Modify: `src-tauri/src/bridge/commands.rs` + `agent_runner.rs`-adjacent `mod.rs` (list_local_models command)
+- Modify: `ui/settings.js` (inline key input, workspace remove, Ollama fetch-models), `ui/index.html` (workspace list container), `ui/app.js` (delete-conversation button, provider preference), `ui/events.js` (stale buttons), `ui/api.js` (listLocalModels), `ui/style.css` (conv-delete, key row)
+
+- [ ] **Step 1: Core — cancel during tool execution**
+
+In `src-tauri/src/core/agent.rs`, replace the direct `t.execute(&ctx, &args_json).await` call with a select (drop of the future kills a running shell child via `kill_on_drop`):
+
+```rust
+                    // Execute with cancellation — a hung tool (up to 300s shell
+                    // timeout) must not ignore Stop.
+                    let exec_result = tokio::select! {
+                        _ = req.cancel.cancelled() => {
+                            let _ = req.events.send(AgentEvent::Cancelled).await;
+                            return AgentOutcome { produced, error: Some(Error::Cancelled) };
+                        }
+                        res = t.execute(&ctx, &args_json) => res,
+                    };
+                    match exec_result {
+                        Ok(output) => {
+                            let summary: String = output.chars().take(80).collect();
+                            let _ = req
+                                .events
+                                .send(AgentEvent::ToolCallFinished { tool_call_id: id.clone(), ok: true, summary })
+                                .await;
+                            ContentPart::ToolResult { tool_call_id: id, content: output, is_error: false }
+                        }
+                        Err(e) => {
+                            let _ = req
+                                .events
+                                .send(AgentEvent::ToolCallFinished { tool_call_id: id.clone(), ok: false, summary: e.to_string() })
+                                .await;
+                            ContentPart::ToolResult { tool_call_id: id, content: e.to_string(), is_error: true }
+                        }
+                    }
+```
+
+New test `cancel_during_tool_execute_aborts`: a `SleepTool` whose execute does `tokio::time::sleep(Duration::from_secs(30))`; start a run with a scripted tool call, cancel after ~100ms (spawn a task that sleeps 100ms then cancels the token), assert the run returns within 5s with `matches!(outcome.error, Some(Error::Cancelled))`.
+
+- [ ] **Step 2: Bridge — `list_local_models` command (Ollama /api/tags)**
+
+In `bridge/commands.rs`:
+
+```rust
+/// Model names from a local Ollama server (`GET {base}/api/tags`).
+pub async fn list_local_models_impl(state: &AppState, provider_id: String) -> Result<Vec<String>> {
+    let cfg = {
+        let s = state.store.clone();
+        block(move || s.get_provider(&provider_id)).await?
+    };
+    if cfg.kind != crate::core::types::ProviderKind::Ollama {
+        return Err(Error::Tool("model listing is only supported for Ollama".into()));
+    }
+    let base = cfg.base_url.clone().unwrap_or_else(|| "http://localhost:11434".into());
+    let url = format!("{}/api/tags", base.trim_end_matches('/'));
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(Error::Http)?;
+    let resp = client.get(&url).send().await.map_err(Error::Http)?;
+    let body: serde_json::Value = resp.json().await.map_err(Error::Http)?;
+    Ok(parse_tags(&body))
+}
+
+fn parse_tags(body: &serde_json::Value) -> Vec<String> {
+    body["models"]
+        .as_array()
+        .map(|arr| arr.iter().filter_map(|m| m["name"].as_str().map(String::from)).collect())
+        .unwrap_or_default()
+}
+```
+
+Test `parse_tags_extracts_names` (pure fn). Command wrapper:
+
+```rust
+#[tauri::command]
+pub async fn list_local_models(state: tauri::State<'_, AppState>, provider_id: String) -> std::result::Result<Vec<String>, String> {
+    list_local_models_impl(&state, provider_id).await.map_err(estr)
+}
+```
+
+Register `commands::list_local_models` in `bridge/mod.rs`'s `generate_handler!`.
+
+- [ ] **Step 3: Settings — inline key input (no `window.prompt`)**
+
+WebView2 does not support `window.prompt`. In `ui/settings.js`, replace the `p-set-key` handler:
+
+```js
+    row.querySelector(".p-set-key").onclick = () => {
+      // WebView2 doesn't support window.prompt — inline password input instead.
+      const keyRow = document.createElement("div");
+      keyRow.className = "provider-actions";
+      const input = document.createElement("input");
+      input.type = "password";
+      input.placeholder = `API key for ${p.label}`;
+      const save = document.createElement("button");
+      save.textContent = "Save key";
+      const cancelBtn = document.createElement("button");
+      cancelBtn.textContent = "Cancel";
+      keyRow.append(input, save, cancelBtn);
+      actions.replaceWith(keyRow);
+      input.focus();
+      save.onclick = guard(async () => {
+        const key = input.value.trim();
+        if (!key) return;
+        await api.setApiKey(p.id, key);
+        p.has_key = true;
+        renderSettings();
+      });
+      cancelBtn.onclick = () => renderSettings();
+    };
+```
+
+(`actions` is the row's `.provider-actions` div built earlier; keep a reference to it.)
+
+- [ ] **Step 4: Settings — workspace list with remove**
+
+In `ui/index.html`, add above the workspace form:
+
+```html
+            <div id="workspace-list-settings"></div>
+```
+
+In `ui/settings.js` (called from the open-settings handler alongside renderSettings):
+
+```js
+export function renderWorkspaces() {
+  const list = $("workspace-list-settings");
+  list.innerHTML = "";
+  for (const ws of state.workspaces) {
+    const row = document.createElement("div");
+    row.className = "provider-row";
+    const label = document.createElement("div");
+    label.className = "provider-head";
+    const strong = document.createElement("strong");
+    strong.textContent = ws.name;
+    const path = document.createElement("span");
+    path.className = "dim";
+    path.textContent = ws.path;
+    const btn = document.createElement("button");
+    btn.textContent = "Remove";
+    btn.onclick = guard(async () => {
+      if (!confirm(`Remove workspace "${ws.name}" and ALL its conversations?`)) return;
+      await api.removeWorkspace(ws.id);
+      state.workspaces = await api.listWorkspaces();
+      state.conversations.delete(ws.id);
+      if (state.active?.workspace_id === ws.id) {
+        state.active = null;
+        $("chat-title").textContent = "Select or create a conversation";
+        $("composer").classList.add("hidden");
+        $("messages").innerHTML = "";
+      }
+      renderSidebar();
+      renderWorkspaces();
+    });
+    label.append(strong, " ", path, " ", btn);
+    row.appendChild(label);
+    list.appendChild(row);
+  }
+}
+```
+
+- [ ] **Step 5: Sidebar — delete conversation button**
+
+In `ui/app.js`'s `renderSidebar`, inside the conversation row loop, after the running-dot block:
+
+```js
+      const del = document.createElement("button");
+      del.className = "conv-delete";
+      del.textContent = "✕";
+      del.title = "Delete conversation";
+      del.onclick = guard(async (e) => {
+        e.stopPropagation();
+        if (!confirm(`Delete "${conv.title}"?`)) return;
+        await api.deleteConversation(conv.id);
+        state.conversations.set(ws.id, await api.listConversations(ws.id));
+        if (state.active?.id === conv.id) {
+          state.active = null;
+          $("chat-title").textContent = "Select or create a conversation";
+          $("composer").classList.add("hidden");
+          $("messages").innerHTML = "";
+        }
+        renderSidebar();
+      });
+      el.appendChild(del);
+```
+
+CSS (`ui/style.css`):
+
+```css
+.conv-delete {
+  visibility: hidden;
+  padding: 0 4px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+.conversation:hover .conv-delete { visibility: visible; }
+.conv-delete:hover { color: var(--danger); }
+```
+
+- [ ] **Step 6: First-run provider preference**
+
+In `ui/app.js`'s new-conversation handler, replace the provider pick with:
+
+```js
+  const provider =
+    state.providers.find((p) => p.has_key && p.models.length > 0) ||
+    state.providers.find((p) => p.kind === "ollama") ||
+    state.providers.find((p) => p.models.length > 0) ||
+    state.providers[0];
+```
+
+- [ ] **Step 7: Settings — Ollama "Fetch models" button**
+
+In `ui/settings.js`'s provider row builder, after the action buttons:
+
+```js
+    if (p.kind === "ollama") {
+      const fetchBtn = mkBtn("p-fetch", "Fetch models");
+      fetchBtn.onclick = guard(async () => {
+        const models = await api.listLocalModels(p.id);
+        if (models.length === 0) {
+          alert("No models on the Ollama server — pull one first (ollama pull …).");
+          return;
+        }
+        row.querySelector(".p-models").value = models.join(", ");
+      });
+      actions.appendChild(fetchBtn);
+    }
+```
+
+`ui/api.js` addition:
+
+```js
+  listLocalModels: (providerId) => invoke("list_local_models", { providerId }),
+```
+
+- [ ] **Step 8: Events — remove stale approval buttons on error/cancel**
+
+In `ui/events.js`, in BOTH the `error` and `cancelled` branches (active path), add:
+
+```js
+      document.querySelectorAll(".approval-card .approval-buttons").forEach((b) => b.remove());
+```
+
+- [ ] **Step 9: Verify + commit**
+
+- `cargo test` → all green (140+); `cargo clippy --all-targets -- -D warnings` clean
+- `node --input-type=module --check` on changed ui files
+- `cargo tauri dev` background ~60s, no errors; `cargo tauri build --no-bundle` succeeds
+
+```bash
+cd /b/Jetbrains/projects/kimislop
+git add -A
+git commit -m "fix: cancel during tool exec, inline key input, workspace/conversation management (final review)"
+```
+
+---
+
 ## Done criteria for this plan
 
 - `cargo test` + `cargo clippy --all-targets -- -D warnings` green
