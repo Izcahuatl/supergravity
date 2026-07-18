@@ -540,6 +540,7 @@ mod tests {
             base_url: Some("https://api.groq.com/openai/v1".into()),
             has_key: false,
             models: vec!["llama-3.3-70b".into()],
+            disabled_models: vec![],
             extra_headers: vec![],
         };
         upsert_provider_impl(&state, custom).await.unwrap();

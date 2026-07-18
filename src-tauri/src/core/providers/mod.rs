@@ -29,44 +29,23 @@ use crate::core::types::ProviderKind;
 
 /// First-run provider presets: sensible defaults with starter model lists.
 /// All user-editable later; model names drift — treat as starting points.
+/// Every preset model starts DISABLED — the user enables what they use.
 pub fn presets() -> Vec<ProviderConfig> {
+    let preset = |id: &str, label: &str, kind: ProviderKind, models: &[&str]| ProviderConfig {
+        id: id.into(),
+        label: label.into(),
+        kind,
+        base_url: None,
+        has_key: false,
+        models: models.iter().map(|m| m.to_string()).collect(),
+        disabled_models: models.iter().map(|m| m.to_string()).collect(),
+        extra_headers: vec![],
+    };
     vec![
-        ProviderConfig {
-            id: "openai".into(),
-            label: "OpenAI".into(),
-            kind: ProviderKind::OpenAi,
-            base_url: None,
-            has_key: false,
-            models: vec!["gpt-5".into(), "gpt-5-mini".into()],
-            extra_headers: vec![],
-        },
-        ProviderConfig {
-            id: "anthropic".into(),
-            label: "Anthropic".into(),
-            kind: ProviderKind::Anthropic,
-            base_url: None,
-            has_key: false,
-            models: vec!["claude-sonnet-4-5".into(), "claude-opus-4-5".into()],
-            extra_headers: vec![],
-        },
-        ProviderConfig {
-            id: "gemini".into(),
-            label: "Gemini".into(),
-            kind: ProviderKind::Gemini,
-            base_url: None,
-            has_key: false,
-            models: vec!["gemini-2.5-pro".into(), "gemini-2.5-flash".into()],
-            extra_headers: vec![],
-        },
-        ProviderConfig {
-            id: "ollama".into(),
-            label: "Ollama (local)".into(),
-            kind: ProviderKind::Ollama,
-            base_url: None,
-            has_key: false,
-            models: vec![],
-            extra_headers: vec![],
-        },
+        preset("openai", "OpenAI", ProviderKind::OpenAi, &["gpt-5", "gpt-5-mini"]),
+        preset("anthropic", "Anthropic", ProviderKind::Anthropic, &["claude-sonnet-4-5", "claude-opus-4-5"]),
+        preset("gemini", "Gemini", ProviderKind::Gemini, &["gemini-2.5-pro", "gemini-2.5-flash"]),
+        preset("ollama", "Ollama (local)", ProviderKind::Ollama, &[]),
     ]
 }
 
@@ -126,6 +105,7 @@ mod tests {
             base_url: None,
             has_key: false,
             models: vec![],
+            disabled_models: vec![],
             extra_headers: vec![],
         }
     }

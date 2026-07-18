@@ -119,6 +119,9 @@ pub struct ProviderConfig {
     /// True when an API key exists in the OS keychain (keys never live in the DB/TOML).
     pub has_key: bool,
     pub models: Vec<String>,
+    /// Models hidden from the picker (they still work where already assigned).
+    #[serde(default)]
+    pub disabled_models: Vec<String>,
     pub extra_headers: Vec<(String, String)>,
 }
 
@@ -200,6 +203,7 @@ mod tests {
             base_url: Some("https://api.groq.com/openai/v1".into()),
             has_key: true,
             models: vec!["llama-3.3-70b".into()],
+            disabled_models: vec![],
             extra_headers: vec![("X-Team".into(), "a".into())],
         };
         let json = serde_json::to_string(&cfg).unwrap();

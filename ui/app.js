@@ -4,6 +4,7 @@ import { initSettings } from "./settings.js";
 import { handleAgentEvent, resetEventState, resumeLiveState } from "./events.js";
 import { initReview } from "./diffview.js";
 import { icon } from "./icons.js";
+import { makeDropdown } from "./dropdown.js";
 
 export const state = {
   workspaces: [],
@@ -59,12 +60,16 @@ export async function refreshMessages() {
   renderMessages(msgs);
 }
 
+function firstEnabledModel(p) {
+  return p.models.find((m) => !(p.disabled_models ?? []).includes(m)) ?? null;
+}
+
 function preferredProvider() {
   return (
-    state.providers.find((p) => p.has_key && p.models.length > 0) ||
-    state.providers.find((p) => p.kind === "ollama" && p.models.length > 0) ||
-    state.providers.find((p) => p.models.length > 0) ||
-    state.providers[0]
+    state.providers.find((p) => p.has_key && firstEnabledModel(p)) ||
+    state.providers.find((p) => p.kind === "ollama" && firstEnabledModel(p)) ||
+    state.providers.find((p) => firstEnabledModel(p)) ||
+    null
   );
 }
 
@@ -104,8 +109,8 @@ function populateCenterProject() {
   if (last) sel.value = last.id;
   const p = preferredProvider();
   $("center-model").textContent = p
-    ? `${p.label} · ${p.models[0] ?? "(no model — set one in Settings)"}`
-    : "no provider — open Settings";
+    ? `${p.label} · ${firstEnabledModel(p)}`
+    : "no enabled models — open ⚙ Settings";
 }
 
 /// FLIP morph: the center composer travels to the bottom chat composer
@@ -172,11 +177,11 @@ async function sendFromCenter() {
     return;
   }
   const provider = preferredProvider();
-  if (!provider || provider.models.length === 0) {
-    alert("Add a provider with a model in Settings first.");
+  if (!provider) {
+    alert("No enabled models — enable some in Settings first.");
     return;
   }
-  const id = await api.createConversation(ws.id, "New Conversation", provider.id, provider.models[0]);
+  const id = await api.createConversation(ws.id, "New Conversation", provider.id, firstEnabledModel(provider));
   state.conversations.set(ws.id, await api.listConversations(ws.id));
   renderSidebar();
   const conv = state.conversations.get(ws.id).find((c) => c.id === id);
@@ -313,32 +318,37 @@ export function renderModelPicker() {
   slot.innerHTML = "";
   if (!state.active) return;
   const conv = state.active;
-  const select = document.createElement("select");
-  select.id = "model-picker";
+  const groups = [];
   for (const p of state.providers) {
-    for (const m of p.models) {
-      const opt = document.createElement("option");
-      opt.value = `${p.id}/${m}`;
-      opt.textContent = `${p.label} · ${m}`;
-      if (p.id === conv.provider_id && m === conv.model) opt.selected = true;
-      select.appendChild(opt);
-    }
+    const enabled = p.models.filter((m) => !(p.disabled_models ?? []).includes(m));
+    if (!enabled.length) continue;
+    groups.push({
+      label: p.label,
+      options: enabled.map((m) => ({
+        value: `${p.id}/${m}`,
+        label: m,
+        current: p.id === conv.provider_id && m === conv.model,
+      })),
+    });
   }
-  if (select.options.length === 0) {
-    const hint = document.createElement("span");
-    hint.className = "dim";
-    hint.textContent = "No models — add one in Settings";
-    slot.appendChild(hint);
-    return;
-  }
-  select.onchange = guard(async () => {
-    const [providerId, ...rest] = select.value.split("/");
-    const model = rest.join("/");
-    await api.updateConversationModel(conv.id, providerId, model);
-    conv.provider_id = providerId;
-    conv.model = model;
+  const current = state.providers.find((p) => p.id === conv.provider_id);
+  const currentLabel = current ? `${current.label} · ${conv.model}` : conv.model;
+  const anyEnabled = groups.length > 0;
+  const dd = makeDropdown({
+    value: currentLabel,
+    groups,
+    emptyNote: anyEnabled ? "" : "All models off — enable some in ⚙ Settings",
+    onSelect: guard(async (v) => {
+      const [providerId, ...rest] = v.split("/");
+      const model = rest.join("/");
+      await api.updateConversationModel(conv.id, providerId, model);
+      conv.provider_id = providerId;
+      conv.model = model;
+      const p = state.providers.find((x) => x.id === providerId);
+      dd.setValue(p ? `${p.label} · ${model}` : model);
+    }),
   });
-  slot.appendChild(select);
+  slot.appendChild(dd.el);
 }
 
 $("new-conversation").onclick = () => renderCenterScreen();

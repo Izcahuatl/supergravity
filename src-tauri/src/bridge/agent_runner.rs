@@ -452,7 +452,8 @@ mod tests {
                 base_url: None,
                 has_key: false,
                 models: vec!["qwen3:0.6b".into()],
-                extra_headers: vec![],
+                disabled_models: vec![],
+            extra_headers: vec![],
             })
             .unwrap();
         let cid = state

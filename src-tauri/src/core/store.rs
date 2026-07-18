@@ -85,6 +85,16 @@ fn str_kind(s: &str) -> ProviderKind {
     }
 }
 
+fn table_exists(conn: &Connection, name: &str) -> bool {
+    conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+        [name],
+        |r| r.get::<_, i64>(0),
+    )
+    .map(|c| c > 0)
+    .unwrap_or(false)
+}
+
 impl Store {
     pub fn open(path: &Path) -> Result<Store> {
         if let Some(parent) = path.parent() {
@@ -109,42 +119,66 @@ impl Store {
 
     fn migrate(&self) -> Result<()> {
         let conn = self.conn.lock().unwrap();
-        conn.execute_batch(
-            "PRAGMA foreign_keys = ON;
-             CREATE TABLE IF NOT EXISTS workspaces(
-               id TEXT PRIMARY KEY,
-               name TEXT NOT NULL,
-               path TEXT NOT NULL UNIQUE,
-               created_at INTEGER NOT NULL
-             );
-             CREATE TABLE IF NOT EXISTS conversations(
-               id TEXT PRIMARY KEY,
-               workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-               title TEXT NOT NULL,
-               provider_id TEXT NOT NULL,
-               model TEXT NOT NULL,
-               approval_mode TEXT NOT NULL CHECK(approval_mode IN ('manual','auto')),
-               created_at INTEGER NOT NULL,
-               updated_at INTEGER NOT NULL
-             );
-             CREATE TABLE IF NOT EXISTS messages(
-               id INTEGER PRIMARY KEY AUTOINCREMENT,
-               conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-               role TEXT NOT NULL,
-               parts_json TEXT NOT NULL,
-               created_at INTEGER NOT NULL
-             );
-             CREATE TABLE IF NOT EXISTS providers(
-               id TEXT PRIMARY KEY,
-               label TEXT NOT NULL,
-               kind TEXT NOT NULL,
-               base_url TEXT,
-               has_key INTEGER NOT NULL DEFAULT 0,
-               models_json TEXT NOT NULL,
-               extra_headers_json TEXT NOT NULL DEFAULT '[]'
-             );
-             PRAGMA user_version = 1;",
-        )?;
+        conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        if version < 1 {
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS workspaces(
+                   id TEXT PRIMARY KEY,
+                   name TEXT NOT NULL,
+                   path TEXT NOT NULL UNIQUE,
+                   created_at INTEGER NOT NULL
+                 );
+                 CREATE TABLE IF NOT EXISTS conversations(
+                   id TEXT PRIMARY KEY,
+                   workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+                   title TEXT NOT NULL,
+                   provider_id TEXT NOT NULL,
+                   model TEXT NOT NULL,
+                   approval_mode TEXT NOT NULL CHECK(approval_mode IN ('manual','auto')),
+                   created_at INTEGER NOT NULL,
+                   updated_at INTEGER NOT NULL
+                 );
+                 CREATE TABLE IF NOT EXISTS messages(
+                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+                   role TEXT NOT NULL,
+                   parts_json TEXT NOT NULL,
+                   created_at INTEGER NOT NULL
+                 );
+                 CREATE TABLE IF NOT EXISTS providers(
+                   id TEXT PRIMARY KEY,
+                   label TEXT NOT NULL,
+                   kind TEXT NOT NULL,
+                   base_url TEXT,
+                   has_key INTEGER NOT NULL DEFAULT 0,
+                   models_json TEXT NOT NULL,
+                   extra_headers_json TEXT NOT NULL DEFAULT '[]'
+                 );
+                 PRAGMA user_version = 1;",
+            )?;
+        }
+        if version < 2 {
+            // Model enable/disable: everything starts OFF; users enable what they use.
+            if table_exists(&conn, "providers") {
+                conn.execute_batch("ALTER TABLE providers ADD COLUMN disabled_models_json TEXT NOT NULL DEFAULT '[]';")?;
+            } else {
+                conn.execute_batch(
+                    "CREATE TABLE IF NOT EXISTS providers(
+                       id TEXT PRIMARY KEY,
+                       label TEXT NOT NULL,
+                       kind TEXT NOT NULL,
+                       base_url TEXT,
+                       has_key INTEGER NOT NULL DEFAULT 0,
+                       models_json TEXT NOT NULL,
+                       extra_headers_json TEXT NOT NULL DEFAULT '[]',
+                       disabled_models_json TEXT NOT NULL DEFAULT '[]'
+                     );",
+                )?;
+            }
+            conn.execute("UPDATE providers SET disabled_models_json = models_json", [])?;
+            conn.execute_batch("PRAGMA user_version = 2;")?;
+        }
         Ok(())
     }
 
@@ -356,11 +390,12 @@ impl Store {
 
     pub fn upsert_provider(&self, cfg: &ProviderConfig) -> Result<()> {
         self.conn.lock().unwrap().execute(
-            "INSERT INTO providers(id, label, kind, base_url, has_key, models_json, extra_headers_json)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            "INSERT INTO providers(id, label, kind, base_url, has_key, models_json, extra_headers_json, disabled_models_json)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
              ON CONFLICT(id) DO UPDATE SET label=excluded.label, kind=excluded.kind,
                base_url=excluded.base_url, has_key=excluded.has_key,
-               models_json=excluded.models_json, extra_headers_json=excluded.extra_headers_json",
+               models_json=excluded.models_json, extra_headers_json=excluded.extra_headers_json,
+               disabled_models_json=excluded.disabled_models_json",
             params![
                 cfg.id,
                 cfg.label,
@@ -369,6 +404,7 @@ impl Store {
                 cfg.has_key as i64,
                 serde_json::to_string(&cfg.models)?,
                 serde_json::to_string(&cfg.extra_headers)?,
+                serde_json::to_string(&cfg.disabled_models)?,
             ],
         )?;
         Ok(())
@@ -377,7 +413,7 @@ impl Store {
     pub fn list_providers(&self) -> Result<Vec<ProviderConfig>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt =
-            conn.prepare("SELECT id, label, kind, base_url, has_key, models_json, extra_headers_json FROM providers ORDER BY label")?;
+            conn.prepare("SELECT id, label, kind, base_url, has_key, models_json, extra_headers_json, disabled_models_json FROM providers ORDER BY label")?;
         let rows = stmt
             .query_map([], |r| {
                 Ok((
@@ -388,11 +424,12 @@ impl Store {
                     r.get::<_, i64>(4)?,
                     r.get::<_, String>(5)?,
                     r.get::<_, String>(6)?,
+                    r.get::<_, String>(7)?,
                 ))
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         let mut out = Vec::new();
-        for (id, label, kind, base_url, has_key, models_json, extra_headers_json) in rows {
+        for (id, label, kind, base_url, has_key, models_json, extra_headers_json, disabled_models_json) in rows {
             out.push(ProviderConfig {
                 id,
                 label,
@@ -400,6 +437,7 @@ impl Store {
                 base_url,
                 has_key: has_key != 0,
                 models: serde_json::from_str(&models_json)?,
+                disabled_models: serde_json::from_str(&disabled_models_json)?,
                 extra_headers: serde_json::from_str(&extra_headers_json)?,
             });
         }
@@ -435,7 +473,7 @@ mod tests {
             .unwrap()
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 1);
+        assert_eq!(v, 2);
     }
 
     #[test]
@@ -538,6 +576,7 @@ mod tests {
             base_url: None,
             has_key: true,
             models: vec!["gpt-5".into()],
+            disabled_models: vec![],
             extra_headers: vec![],
         };
         s.upsert_provider(&cfg).unwrap();
@@ -567,6 +606,7 @@ mod tests {
             base_url: None,
             has_key: false,
             models: vec!["gpt-5".into()],
+            disabled_models: vec![],
             extra_headers: vec![],
         };
         s.upsert_provider(&cfg).unwrap();

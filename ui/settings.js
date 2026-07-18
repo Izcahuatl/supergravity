@@ -97,12 +97,45 @@ function renderSettings() {
     baseInput.placeholder = "(default)";
     baseLabel.appendChild(baseInput);
 
-    const modelsLabel = document.createElement("label");
-    modelsLabel.textContent = "Models ";
-    const modelsInput = document.createElement("input");
-    modelsInput.className = "p-models";
-    modelsInput.value = p.models.join(", ");
-    modelsLabel.appendChild(modelsInput);
+    // Models editor: checkbox per model (checked = enabled in the picker).
+    const modelsWrap = document.createElement("div");
+    modelsWrap.className = "models-wrap";
+    const modelsHead = document.createElement("div");
+    modelsHead.className = "dim models-head";
+    modelsHead.textContent = "Models (checked = shown in picker)";
+    modelsWrap.appendChild(modelsHead);
+    const disabled = new Set(p.disabled_models ?? []);
+    const addModelRow = (name) => {
+      const row = document.createElement("label");
+      row.className = "model-check";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = !disabled.has(name);
+      cb.dataset.model = name;
+      const txt = document.createElement("span");
+      txt.textContent = name;
+      row.append(cb, txt);
+      modelsWrap.appendChild(row);
+      return row;
+    };
+    for (const m of p.models) addModelRow(m);
+    // Add-model inline form
+    const addRow = document.createElement("div");
+    addRow.className = "model-add";
+    const addInput = document.createElement("input");
+    addInput.placeholder = "add model…";
+    const addBtn = document.createElement("button");
+    addBtn.type = "button";
+    addBtn.textContent = "Add";
+    addBtn.onclick = () => {
+      const name = addInput.value.trim();
+      if (!name) return;
+      if ([...modelsWrap.querySelectorAll("input[type=checkbox]")].some((c) => c.dataset.model === name)) return;
+      addModelRow(name);
+      addInput.value = "";
+    };
+    addRow.append(addInput, addBtn);
+    modelsWrap.appendChild(addRow);
 
     const actions = document.createElement("div");
     actions.className = "provider-actions";
@@ -123,15 +156,21 @@ function renderSettings() {
           alert("No models on the Ollama server — pull one first (ollama pull …).");
           return;
         }
-        row.querySelector(".p-models").value = models.join(", ");
+        for (const m of models) {
+          if (![...modelsWrap.querySelectorAll("input[type=checkbox]")].some((c) => c.dataset.model === m)) {
+            addModelRow(m);
+          }
+        }
       });
       actions.appendChild(fetchBtn);
     }
 
-    row.append(head, baseLabel, modelsLabel, actions);
+    row.append(head, baseLabel, modelsWrap, actions);
     row.querySelector(".p-save").onclick = guard(async () => {
       p.base_url = row.querySelector(".p-base").value.trim() || null;
-      p.models = row.querySelector(".p-models").value.split(",").map((m) => m.trim()).filter(Boolean);
+      const checks = [...modelsWrap.querySelectorAll("input[type=checkbox]")];
+      p.models = checks.map((c) => c.dataset.model);
+      p.disabled_models = checks.filter((c) => !c.checked).map((c) => c.dataset.model);
       await api.upsertProvider(p);
       await refreshProvidersFn();
       renderSettings();
