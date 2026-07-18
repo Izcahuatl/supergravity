@@ -283,6 +283,83 @@ async fn eval_all() {
     r.print();
     results.push(r);
 
+    // S8: surgical single-string edit — file must keep everything else intact
+    let ws = tempfile::tempdir().unwrap();
+    std::fs::write(
+        ws.path().join("config.txt"),
+        "host=localhost\nport=8080\ndebug=false\n",
+    )
+    .unwrap();
+    let r = eval_scenario(
+        "S8 surgical edit",
+        ws.path(),
+        "In config.txt, change the port from 8080 to 9090. Leave everything else unchanged.",
+        vec![],
+    )
+    .await;
+    let on_disk = std::fs::read_to_string(ws.path().join("config.txt")).unwrap_or_default();
+    let used_edit = has_call(&r.tool_calls, "edit_file");
+    let r = EvalResult {
+        checks: vec![
+            ("port is now 9090", on_disk.contains("port=9090")),
+            ("other lines intact", on_disk.contains("host=localhost") && on_disk.contains("debug=false")),
+            ("used edit_file (surgical, not rewrite)", used_edit),
+            ("no run error", r.run_error.is_none()),
+        ],
+        ..r
+    };
+    r.print();
+    results.push(r);
+
+    // S9: multi-line replacement in source code
+    let ws = tempfile::tempdir().unwrap();
+    std::fs::write(
+        ws.path().join("calc.rs"),
+        "fn add(a: i32, b: i32) -> i32 {\n    a - b\n}\n\nfn main() {\n    println!(\"{}\", add(2, 3));\n}\n",
+    )
+    .unwrap();
+    let r = eval_scenario(
+        "S9 code edit",
+        ws.path(),
+        "In calc.rs, the add function is wrong: it subtracts. Fix it to actually add, without changing main.",
+        vec![],
+    )
+    .await;
+    let on_disk = std::fs::read_to_string(ws.path().join("calc.rs")).unwrap_or_default();
+    let r = EvalResult {
+        checks: vec![
+            ("body now adds", on_disk.contains("a + b")),
+            ("no subtraction left in add", !on_disk.contains("a - b")),
+            ("main unchanged", on_disk.contains("fn main()") && on_disk.contains("add(2, 3)")),
+            ("no run error", r.run_error.is_none()),
+        ],
+        ..r
+    };
+    r.print();
+    results.push(r);
+
+    // S10: ambiguous string — model must add context or use expected_replacements
+    let ws = tempfile::tempdir().unwrap();
+    std::fs::write(ws.path().join("dup.txt"), "x = 1;\nx = 2;\n").unwrap();
+    let r = eval_scenario(
+        "S10 ambiguous string",
+        ws.path(),
+        "In dup.txt, change only the SECOND 'x = ' line so it reads 'y = 2;'. The first line must stay 'x = 1;'.",
+        vec![],
+    )
+    .await;
+    let on_disk = std::fs::read_to_string(ws.path().join("dup.txt")).unwrap_or_default();
+    let r = EvalResult {
+        checks: vec![
+            ("first line unchanged", on_disk.contains("x = 1;")),
+            ("second line changed", on_disk.contains("y = 2;")),
+            ("no run error", r.run_error.is_none()),
+        ],
+        ..r
+    };
+    r.print();
+    results.push(r);
+
     // Summary
     let pass: usize = results.iter().map(|r| r.checks.iter().filter(|(_, ok)| *ok).count()).sum();
     let total: usize = results.iter().map(|r| r.checks.len()).sum();

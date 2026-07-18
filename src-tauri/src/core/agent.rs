@@ -425,7 +425,9 @@ pub fn system_prompt(
          \"[output of run_shell \\\"echo hello\\\" — exit code 0]\\nhello\"; you then tell the user: \
          It printed: hello. The user ran nothing.\n\
          Rules: keep all file access inside the workspace root; read before you modify; \
-         prefer small, targeted changes; when a tool returns an error, adapt or explain instead of retrying blindly.\n\
+         prefer small, targeted changes — for editing an existing file, use edit_file with an exact \
+         old_string instead of rewriting the whole file with write_file; \
+         when a tool returns an error, adapt or explain instead of retrying blindly.\n\
          {}",
         workspace_root.display(),
         tool_names.join(", "),

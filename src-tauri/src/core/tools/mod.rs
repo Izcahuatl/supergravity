@@ -25,6 +25,7 @@ pub fn default_tools() -> Vec<Box<dyn Tool>> {
     vec![
         Box::new(fs::ReadFileTool),
         Box::new(fs::WriteFileTool),
+        Box::new(fs::EditFileTool),
         Box::new(fs::ListDirTool),
         Box::new(search::GrepTool),
         Box::new(search::GlobTool),

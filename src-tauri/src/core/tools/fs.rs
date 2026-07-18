@@ -210,6 +210,73 @@ fn list_recursive(dir: &std::path::Path, depth: usize, level: usize, out: &mut V
     }
 }
 
+pub struct EditFileTool;
+
+#[derive(Deserialize)]
+struct EditFileArgs {
+    path: String,
+    old_string: String,
+    new_string: String,
+    expected_replacements: Option<usize>,
+}
+
+#[async_trait::async_trait]
+impl Tool for EditFileTool {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "edit_file".into(),
+            description: "Replace an exact string in a file (surgical edit — prefer this over rewriting whole files). old_string must match exactly, including whitespace. By default it must be unique in the file; pass expected_replacements to replace N occurrences.".into(),
+            params_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "File to edit, relative to the workspace root"},
+                    "old_string": {"type": "string", "description": "Exact text to find (must be unique unless expected_replacements is set)"},
+                    "new_string": {"type": "string", "description": "Replacement text"},
+                    "expected_replacements": {"type": "integer", "description": "Replace exactly N occurrences (default 1)"}
+                },
+                "required": ["path", "old_string", "new_string"]
+            }),
+        }
+    }
+
+    fn needs_approval(&self) -> bool {
+        true
+    }
+
+    async fn execute(&self, ctx: &ToolContext, args_json: &str) -> Result<String> {
+        let args: EditFileArgs = serde_json::from_str(args_json)?;
+        if args.old_string.is_empty() {
+            return Err(Error::Tool("old_string must not be empty".into()));
+        }
+        let path = resolve_in_workspace(&ctx.workspace_root, &args.path)?;
+        let bytes = std::fs::read(&path)
+            .map_err(|e| Error::Tool(format!("cannot read {}: {e}", path.display())))?;
+        let content = String::from_utf8_lossy(&bytes).into_owned();
+
+        let count = content.matches(&args.old_string).count();
+        let expected = args.expected_replacements.unwrap_or(1);
+        if count == 0 {
+            return Err(Error::Tool(format!(
+                "old_string not found in {}",
+                path.display()
+            )));
+        }
+        if count != expected {
+            return Err(Error::Tool(format!(
+                "old_string occurs {count} times in {}, expected {expected} — make it more specific or adjust expected_replacements",
+                path.display()
+            )));
+        }
+        let updated = content.replacen(&args.old_string, &args.new_string, expected);
+        std::fs::write(&path, updated)?;
+        Ok(format!(
+            "[edited {} — replaced {expected} occurrence{}]",
+            path.display(),
+            if expected == 1 { "" } else { "s" }
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -225,6 +292,104 @@ mod tests {
         std::fs::write(root.join("src/a.txt"), "line1\nline2\nline3\nline4\n").unwrap();
         std::fs::write(root.join("top.txt"), "top\n").unwrap();
         (dir, ctx)
+    }
+
+    #[tokio::test]
+    async fn edit_file_single_replacement() {
+        let (_d, ctx) = ctx();
+        let out = EditFileTool
+            .execute(&ctx, r#"{"path": "src/a.txt", "old_string": "line2", "new_string": "CHANGED"}"#)
+            .await
+            .unwrap();
+        assert!(out.contains("replaced 1"), "{out}");
+        assert_eq!(
+            std::fs::read_to_string(ctx.workspace_root.join("src/a.txt")).unwrap(),
+            "line1\nCHANGED\nline3\nline4\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn edit_file_multiline_replacement() {
+        let (_d, ctx) = ctx();
+        let args = r#"{"path": "src/a.txt", "old_string": "line2\nline3", "new_string": "A\nB\nC"}"#;
+        EditFileTool.execute(&ctx, args).await.unwrap();
+        assert_eq!(
+            std::fs::read_to_string(ctx.workspace_root.join("src/a.txt")).unwrap(),
+            "line1\nA\nB\nC\nline4\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn edit_file_not_found_is_error() {
+        let (_d, ctx) = ctx();
+        let err = EditFileTool
+            .execute(&ctx, r#"{"path": "src/a.txt", "old_string": "nope", "new_string": "x"}"#)
+            .await
+            .err()
+            .unwrap();
+        assert!(err.to_string().contains("not found"), "{err}");
+        // file unchanged
+        assert_eq!(
+            std::fs::read_to_string(ctx.workspace_root.join("src/a.txt")).unwrap(),
+            "line1\nline2\nline3\nline4\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn edit_file_ambiguous_requires_count() {
+        let (dir, ctx) = ctx();
+        std::fs::write(dir.path().join("dup.txt"), "x = 1;\nx = 2;\n").unwrap();
+        let err = EditFileTool
+            .execute(&ctx, r#"{"path": "dup.txt", "old_string": "x = ", "new_string": "y = "}"#)
+            .await
+            .err()
+            .unwrap();
+        assert!(err.to_string().contains("2 times"), "{err}");
+        // with expected_replacements it works and replaces BOTH
+        EditFileTool
+            .execute(&ctx, r#"{"path": "dup.txt", "old_string": "x = ", "new_string": "y = ", "expected_replacements": 2}"#)
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read_to_string(dir.path().join("dup.txt")).unwrap(), "y = 1;\ny = 2;\n");
+    }
+
+    #[tokio::test]
+    async fn edit_file_wrong_expected_count_is_error() {
+        let (dir, ctx) = ctx();
+        std::fs::write(dir.path().join("dup.txt"), "x\nx\nx\n").unwrap();
+        let err = EditFileTool
+            .execute(&ctx, r#"{"path": "dup.txt", "old_string": "x", "new_string": "y", "expected_replacements": 2}"#)
+            .await
+            .err()
+            .unwrap();
+        assert!(err.to_string().contains("expected 2"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn edit_file_missing_file_and_escape_rejected() {
+        let (_d, ctx) = ctx();
+        assert!(EditFileTool
+            .execute(&ctx, r#"{"path": "nope.txt", "old_string": "a", "new_string": "b"}"#)
+            .await
+            .is_err());
+        assert!(EditFileTool
+            .execute(&ctx, r#"{"path": "../out.txt", "old_string": "a", "new_string": "b"}"#)
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn edit_file_needs_approval() {
+        assert!(EditFileTool.needs_approval());
+    }
+
+    #[tokio::test]
+    async fn edit_file_empty_old_string_is_error() {
+        let (_d, ctx) = ctx();
+        assert!(EditFileTool
+            .execute(&ctx, r#"{"path": "src/a.txt", "old_string": "", "new_string": "b"}"#)
+            .await
+            .is_err());
     }
 
     #[tokio::test]
