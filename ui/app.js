@@ -76,9 +76,15 @@ export function renderCenterScreen() {
   $("chat-ws").textContent = "";
   $("composer").classList.add("hidden");
   $("stop-agent").classList.add("hidden");
-  $("messages").innerHTML = "";
   $("messages").classList.add("hidden");
+  $("messages").style.opacity = "";
   $("center-screen").classList.remove("hidden");
+  // The center composer rises into place.
+  const wrap = $("center-screen").querySelector(".center-wrap");
+  wrap.style.animation = "none";
+  requestAnimationFrame(() => {
+    wrap.style.animation = "";
+  });
   populateCenterProject();
 }
 
@@ -103,6 +109,60 @@ function populateCenterProject() {
     : "no provider — open Settings";
 }
 
+/// FLIP morph: the center composer travels to the bottom chat composer
+/// (moving down and expanding), then the real composer takes over.
+async function transitionCenterToComposer() {
+  const center = $("center-screen");
+  const card = center.querySelector(".center-composer");
+  const composer = $("composer");
+  if (!card || !composer) return;
+  const start = card.getBoundingClientRect();
+  // Measure the target without flashing it: reveal invisibly.
+  composer.classList.remove("hidden");
+  composer.style.opacity = "0";
+  const end = composer.getBoundingClientRect();
+
+  const ghost = card.cloneNode(true);
+  const ta = ghost.querySelector("textarea");
+  if (ta) ta.disabled = true;
+  Object.assign(ghost.style, {
+    position: "fixed",
+    left: `${start.left}px`,
+    top: `${start.top}px`,
+    width: `${start.width}px`,
+    height: `${start.height}px`,
+    margin: "0",
+    zIndex: 50,
+    pointerEvents: "none",
+    transformOrigin: "top left",
+  });
+  document.body.appendChild(ghost);
+
+  // Fade the rest of the center screen away under the moving ghost.
+  center.style.transition = "opacity 0.28s ease";
+  center.style.opacity = "0";
+
+  const dx = end.left - start.left;
+  const dy = end.top - start.top;
+  const anim = ghost.animate(
+    [
+      { transform: "translate(0px, 0px)", width: `${start.width}px`, height: `${start.height}px`, opacity: 1 },
+      { transform: `translate(${dx}px, ${dy}px)`, width: `${end.width}px`, height: `${end.height}px`, opacity: 0.35 },
+    ],
+    { duration: 340, easing: "cubic-bezier(.22,.8,.26,1)", fill: "forwards" }
+  );
+  try {
+    await anim.finished;
+  } catch {
+    /* aborted */
+  }
+  ghost.remove();
+  center.classList.add("hidden");
+  center.style.opacity = "";
+  center.style.transition = "";
+  composer.style.opacity = "";
+}
+
 async function sendFromCenter() {
   const text = $("center-input").value.trim();
   if (!text) return;
@@ -123,8 +183,11 @@ async function sendFromCenter() {
   const conv = state.conversations.get(ws.id).find((c) => c.id === id);
   if (!conv) return;
   $("center-input").value = "";
+  // Swap screens under the morph, then let the composer take focus.
+  await transitionCenterToComposer();
   await selectConversation(conv);
   $("input").value = text;
+  $("input").focus();
   await send();
 }
 
@@ -216,7 +279,8 @@ export async function selectConversation(conv) {
   state.active = conv;
   state.lastWorkspaceId = conv.workspace_id;
   $("center-screen").classList.add("hidden");
-  $("messages").classList.remove("hidden");
+  const msgEl = $("messages");
+  msgEl.classList.remove("hidden");
   renderSidebar(); // instant feedback, before the fetch
   $("chat-title").textContent = conv.title;
   $("chat-ws").innerHTML = `${icon("folder", 13)}<span></span>`;
@@ -228,7 +292,14 @@ export async function selectConversation(conv) {
   const msgs = await api.getMessages(conv.id);
   // A newer click may have switched away while the fetch was in flight.
   if (state.active?.id !== conv.id) return;
+  // Fade the pane swap instead of a hard cut.
+  msgEl.style.transition = "none";
+  msgEl.style.opacity = "0";
   renderMessages(msgs);
+  requestAnimationFrame(() => {
+    msgEl.style.transition = "opacity 0.18s ease";
+    msgEl.style.opacity = "1";
+  });
   resumeLiveState(conv.id);
   api.setUiState(conv.workspace_id, conv.id).catch(() => {});
   $("input").focus();
@@ -353,12 +424,31 @@ $("input").addEventListener("keydown", (e) => {
   }
 });
 
+// Textarea autoresize + send-button state sync.
+function bindAutoresize(el, max = 160) {
+  const fit = () => {
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, max) + "px";
+  };
+  el.addEventListener("input", fit);
+  fit();
+}
+bindAutoresize($("input"));
+bindAutoresize($("center-input"));
+
+const syncSendState = () => {
+  $("send").disabled = !$("input").value.trim();
+};
+$("input").addEventListener("input", syncSendState);
+syncSendState();
+
 async function send() {
   const text = $("input").value.trim();
   if (!text || !state.active) return;
   const cid = state.active.id;
   if (state.running.has(cid)) return;
   $("input").value = "";
+  syncSendState();
   resetEventState();
   const bubble = document.createElement("div");
   bubble.className = "bubble user";

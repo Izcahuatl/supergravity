@@ -534,3 +534,11 @@ button:active { transform: scale(0.97); }
 #open-settings { display: inline-flex; align-items: center; gap: 6px; }
 #stop-agent { display: inline-flex; align-items: center; gap: 5px; }
 .center-project-row .icon { color: var(--text-dim); }
+
+/* --- center wrap rise + send disabled state --- */
+.center-wrap { animation: fadeSlideIn 0.3s ease-out; }
+#send:disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+#input, #center-input { max-height: 160px; }
