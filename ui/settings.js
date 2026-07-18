@@ -1,5 +1,5 @@
 import { api } from "./api.js";
-import { state, renderSidebar, guard } from "./app.js";
+import { state, renderSidebar, renderEmptyState, guard } from "./app.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -192,8 +192,9 @@ export function renderWorkspaces() {
       if (state.active?.workspace_id === ws.id) {
         state.active = null;
         $("chat-title").textContent = "Select or create a conversation";
+        $("chat-ws").textContent = "";
         $("composer").classList.add("hidden");
-        $("messages").innerHTML = "";
+        renderEmptyState();
         $("stop-agent").classList.add("hidden");
       }
       renderSidebar();

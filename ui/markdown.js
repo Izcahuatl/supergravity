@@ -1,11 +1,20 @@
 // Minimal markdown: escapes HTML, then handles ``` fences, `code`, **bold**, *italic*, lists, paragraphs.
+// Also collapses <think>…</think> blocks (qwen3-style reasoning) into a details element.
 export function renderMarkdown(src) {
   const esc = (s) =>
     s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  // Escape everything first; all downstream passes work on escaped text.
+  let safe = esc(src);
+  // <think> blocks → collapsible "Thinking…" (unclosed block while streaming = open).
+  safe = safe.replace(
+    /&lt;think&gt;([\s\S]*?)(&lt;\/think&gt;|$)/g,
+    (_, inner, close) =>
+      `<details class="think"${close ? "" : " open"}><summary>Thinking…</summary><pre>${inner}</pre></details>`
+  );
   const inline = (s) => {
     // Protect code spans from later passes (bold/italic must not apply inside code).
     const codes = [];
-    let out = esc(s).replace(/`([^`]+)`/g, (_, c) => {
+    let out = s.replace(/`([^`]+)`/g, (_, c) => {
       codes.push(c);
       return `\u0000${codes.length - 1}\u0000`;
     });
@@ -17,12 +26,12 @@ export function renderMarkdown(src) {
   };
   // Split on ``` fences: odd indices are code blocks (first line = language hint, skipped).
   let html = "";
-  const parts = src.split("```");
+  const parts = safe.split("```");
   for (let i = 0; i < parts.length; i++) {
     if (i % 2 === 1) {
       const nl = parts[i].indexOf("\n");
       const code = nl === -1 ? parts[i] : parts[i].slice(nl + 1);
-      html += `<pre><code>${esc(code)}</code></pre>`;
+      html += `<pre><code>${code}</code></pre>`;
     } else {
       const paragraphs = parts[i].split(/\n{2,}/);
       for (const p of paragraphs) {

@@ -30,15 +30,45 @@ async function boot() {
   renderSidebar();
   initSettings(state, refreshProviders);
   // Restore last conversation if it still exists.
+  let restored = false;
   if (initial.config.last_conversation_id) {
     for (const convs of state.conversations.values()) {
       const found = convs.find((c) => c.id === initial.config.last_conversation_id);
       if (found) {
         await selectConversation(found);
+        restored = true;
         break;
       }
     }
   }
+  if (!restored) renderEmptyState();
+}
+
+/// Welcome screen when no conversation is selected.
+export function renderEmptyState() {
+  const el = $("messages");
+  el.innerHTML = "";
+  const div = document.createElement("div");
+  div.className = "empty-state";
+  const title = document.createElement("div");
+  title.className = "empty-title";
+  title.textContent = "supergravity";
+  const sub = document.createElement("div");
+  sub.className = "empty-sub";
+  sub.textContent = "Agent mission control — any model, your rules.";
+  const hints = document.createElement("ul");
+  hints.className = "empty-hints";
+  for (const hint of [
+    "Pick a conversation on the left, or hit + New Conversation",
+    "Set API keys in ⚙ Settings — or run a local model via Ollama",
+    "Manual mode asks before every write or command; Auto just goes",
+  ]) {
+    const li = document.createElement("li");
+    li.textContent = hint;
+    hints.appendChild(li);
+  }
+  div.append(title, sub, hints);
+  el.appendChild(div);
 }
 
 export async function refreshProviders() {
@@ -79,8 +109,9 @@ export function renderSidebar() {
         if (state.active?.id === conv.id) {
           state.active = null;
           $("chat-title").textContent = "Select or create a conversation";
+          $("chat-ws").textContent = "";
           $("composer").classList.add("hidden");
-          $("messages").innerHTML = "";
+          renderEmptyState();
           $("stop-agent").classList.add("hidden");
         }
         renderSidebar();
@@ -93,10 +124,15 @@ export function renderSidebar() {
   }
 }
 
+function workspaceName(id) {
+  return state.workspaces.find((w) => w.id === id)?.name ?? "";
+}
+
 export async function selectConversation(conv) {
   state.active = conv;
   renderSidebar(); // instant feedback, before the fetch
   $("chat-title").textContent = conv.title;
+  $("chat-ws").textContent = `📁 ${workspaceName(conv.workspace_id)}`;
   $("composer").classList.remove("hidden");
   renderModelPicker();
   renderModeToggle(conv.approval_mode);
