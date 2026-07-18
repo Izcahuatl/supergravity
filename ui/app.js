@@ -13,6 +13,12 @@ export const state = {
 
 const $ = (id) => document.getElementById(id);
 
+// Wrap async UI handlers: surface failures instead of silent unhandled rejections.
+const guard = (fn) => (e) => fn(e).catch((err) => {
+  console.error(err);
+  alert(String(err));
+});
+
 async function boot() {
   const initial = await api.getInitialState();
   state.workspaces = initial.workspaces;
@@ -60,7 +66,7 @@ export function renderSidebar() {
         dot.className = "running-dot";
         el.appendChild(dot);
       }
-      el.onclick = () => selectConversation(conv);
+      el.onclick = guard(() => selectConversation(conv));
       wsEl.appendChild(el);
     }
     list.appendChild(wsEl);
@@ -69,14 +75,16 @@ export function renderSidebar() {
 
 export async function selectConversation(conv) {
   state.active = conv;
+  renderSidebar();
   $("chat-title").textContent = conv.title;
   $("composer").classList.remove("hidden");
   renderModelPicker();
   renderModeToggle(conv.approval_mode);
   const msgs = await api.getMessages(conv.id);
+  // A newer click may have switched away while the fetch was in flight.
+  if (state.active?.id !== conv.id) return;
   renderMessages(msgs);
-  renderSidebar();
-  api.setUiState(conv.workspace_id, conv.id);
+  api.setUiState(conv.workspace_id, conv.id).catch(() => {});
 }
 
 export function renderModeToggle(mode) {
@@ -106,42 +114,46 @@ export function renderModelPicker() {
     slot.appendChild(hint);
     return;
   }
-  select.onchange = async () => {
+  select.onchange = guard(async () => {
     const [providerId, ...rest] = select.value.split("/");
     const model = rest.join("/");
     await api.updateConversationModel(conv.id, providerId, model);
     conv.provider_id = providerId;
     conv.model = model;
-  };
+  });
   slot.appendChild(select);
 }
 
-$("new-conversation").onclick = async () => {
+$("new-conversation").onclick = guard(async () => {
   if (state.workspaces.length === 0) {
     alert("Add a workspace first (Settings → Add workspace).");
     return;
   }
-  const ws = state.workspaces[0];
+  const ws = state.workspaces.find((w) => w.id === state.active?.workspace_id) || state.workspaces[0];
   const provider = state.providers.find((p) => p.models.length > 0) || state.providers[0];
   if (!provider) {
     alert("Add a provider first (Settings).");
     return;
   }
   const model = provider.models[0] || "";
+  if (!model) {
+    alert(`Provider ${provider.label} has no models — add one in Settings.`);
+    return;
+  }
   const id = await api.createConversation(ws.id, "New Conversation", provider.id, model);
   state.conversations.set(ws.id, await api.listConversations(ws.id));
   renderSidebar();
   const conv = state.conversations.get(ws.id).find((c) => c.id === id);
   if (conv) await selectConversation(conv);
-};
+});
 
-$("mode-toggle").onclick = async () => {
+$("mode-toggle").onclick = guard(async () => {
   if (!state.active) return;
   const next = state.active.approval_mode === "auto" ? "manual" : "auto";
   await api.setApprovalMode(state.active.id, next);
   state.active.approval_mode = next;
   renderModeToggle(next);
-};
+});
 
 boot().catch((e) => {
   document.getElementById("chat-title").textContent = `Boot failed: ${e}`;
