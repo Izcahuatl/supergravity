@@ -174,14 +174,15 @@ pub async fn run_agent_task(
     let _ = pump.await;
 }
 
-pub async fn send_message_impl(
-    app: AppHandle,
+/// Everything send_message does BEFORE spawning the agent task: resolve the
+/// conversation/provider/key, build the provider, persist the user message,
+/// and auto-title placeholder conversations. Split out so it can be tested
+/// without an AppHandle.
+pub async fn prepare_run(
     state: &AppState,
     conversation_id: String,
     text: String,
-) -> Result<()> {
-    // Resolve provider/key FIRST — a config failure must not leave a dangling
-    // user message in history.
+) -> Result<(ConversationRow, Arc<dyn Provider>)> {
     let conv = {
         let s = state.store.clone();
         let c = conversation_id.clone();
@@ -218,7 +219,16 @@ pub async fn send_message_impl(
         let c = conversation_id.clone();
         block(move || s.rename_conversation(&c, &title)).await?;
     }
+    Ok((conv, provider))
+}
 
+pub async fn send_message_impl(
+    app: AppHandle,
+    state: &AppState,
+    conversation_id: String,
+    text: String,
+) -> Result<()> {
+    let (conv, provider) = prepare_run(state, conversation_id, text).await?;
     let parts = AgentTaskParts::new(state, conv, provider).await?;
     tauri::async_runtime::spawn(async move {
         let emit = move |v: serde_json::Value| {
@@ -418,5 +428,60 @@ mod tests {
             .err()
             .unwrap();
         assert!(err.to_string().contains("already running"), "{err}");
+    }
+
+    /// Reproduces the user's "message shows, then nothing" report: full
+    /// prepare_run → agent task path against a LIVE Ollama server.
+    /// Run with: cargo test --lib bridge::agent_runner -- --ignored
+    #[tokio::test]
+    #[ignore = "needs a local Ollama server with qwen3:0.6b"]
+    async fn live_send_message_produces_assistant_reply() {
+        let state = AppState::test();
+        let dir = tempfile::tempdir().unwrap();
+        let ws = state
+            .store
+            .add_workspace("proj", &dir.path().to_string_lossy())
+            .unwrap();
+        // Seed an ollama provider config matching production.
+        state
+            .store
+            .upsert_provider(&crate::core::types::ProviderConfig {
+                id: "ollama".into(),
+                label: "Ollama (local)".into(),
+                kind: crate::core::types::ProviderKind::Ollama,
+                base_url: None,
+                has_key: false,
+                models: vec!["qwen3:0.6b".into()],
+                extra_headers: vec![],
+            })
+            .unwrap();
+        let cid = state
+            .store
+            .create_conversation(&ws, "New Conversation", "ollama", "qwen3:0.6b", crate::core::types::ApprovalMode::Auto)
+            .unwrap();
+
+        let (conv, provider) = prepare_run(&state, cid.clone(), "say hi".into()).await.unwrap();
+        let parts = AgentTaskParts::new(&state, conv, provider).await.unwrap();
+        let (out_tx, mut out_rx) = mpsc::channel::<serde_json::Value>(4096);
+        tokio::time::timeout(
+            std::time::Duration::from_secs(120),
+            run_agent_task(parts, move |v| {
+                let _ = out_tx.try_send(v);
+            }),
+        )
+        .await
+        .expect("agent task must complete");
+
+        let mut kinds = vec![];
+        while let Ok(v) = out_rx.try_recv() {
+            kinds.push(v["event"]["kind"].as_str().unwrap().to_string());
+        }
+        assert!(kinds.contains(&"text_delta".to_string()), "{kinds:?}");
+        assert!(kinds.contains(&"message_done".to_string()), "{kinds:?}");
+
+        let msgs = state.store.get_messages(&cid).unwrap();
+        assert!(msgs.iter().any(|m| m.role == Role::Assistant), "assistant reply must be persisted: {msgs:?}");
+        // Auto-title fired.
+        assert_ne!(state.store.get_conversation(&cid).unwrap().title, "New Conversation");
     }
 }
