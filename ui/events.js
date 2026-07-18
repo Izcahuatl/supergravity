@@ -81,6 +81,7 @@ export function handleAgentEvent(payload) {
       currentTextBubble = null;
       streamBuffers.delete(conversation_id);
       pendingApprovals.delete(conversation_id);
+      document.querySelectorAll(".approval-card .approval-buttons").forEach((b) => b.remove());
       const bubble = addBubble("error");
       bubble.textContent = `Error: ${event.data}`;
       $("stop-agent").classList.add("hidden");
@@ -90,6 +91,7 @@ export function handleAgentEvent(payload) {
       currentTextBubble = null;
       streamBuffers.delete(conversation_id);
       pendingApprovals.delete(conversation_id);
+      document.querySelectorAll(".approval-card .approval-buttons").forEach((b) => b.remove());
       const bubble = addBubble("error");
       bubble.textContent = "Cancelled.";
       $("stop-agent").classList.add("hidden");

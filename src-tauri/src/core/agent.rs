@@ -230,7 +230,19 @@ pub async fn run(req: AgentRequest) -> AgentOutcome {
                             }
                         }
                     }
-                    match t.execute(&ctx, &args_json).await {
+                    // Execute with cancellation — a hung tool (up to 300s shell
+                    // timeout) must not ignore Stop.
+                    let exec_result = tokio::select! {
+                        _ = req.cancel.cancelled() => {
+                            let _ = req.events.send(AgentEvent::Cancelled).await;
+                            return AgentOutcome {
+                                produced,
+                                error: Some(Error::Cancelled),
+                            };
+                        }
+                        res = t.execute(&ctx, &args_json) => res,
+                    };
+                    match exec_result {
                         Ok(output) => {
                             let summary: String = output.chars().take(80).collect();
                             let _ = req
@@ -342,6 +354,31 @@ mod tests {
             args_json: &str,
         ) -> crate::core::error::Result<String> {
             Ok(format!("echoed: {args_json}"))
+        }
+    }
+
+    /// Test tool that hangs for 30s — cancel must interrupt it mid-execute.
+    struct SleepTool;
+
+    #[async_trait::async_trait]
+    impl Tool for SleepTool {
+        fn spec(&self) -> ToolSpec {
+            ToolSpec {
+                name: "sleep".into(),
+                description: "sleep for 30s".into(),
+                params_schema: serde_json::json!({"type": "object"}),
+            }
+        }
+        fn needs_approval(&self) -> bool {
+            false
+        }
+        async fn execute(
+            &self,
+            _ctx: &ToolContext,
+            _args_json: &str,
+        ) -> crate::core::error::Result<String> {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            Ok("slept".into())
         }
     }
 
@@ -816,5 +853,56 @@ mod tests {
             result.error,
             Some(crate::core::error::Error::Cancelled)
         ));
+    }
+
+    #[tokio::test]
+    async fn cancel_during_tool_execute_aborts() {
+        let script = vec![vec![
+            Ok(ChatEvent::ToolCall {
+                id: "c1".into(),
+                name: "sleep".into(),
+                args_json: "{}".into(),
+            }),
+            Ok(ChatEvent::Done),
+        ]];
+        let provider = std::sync::Arc::new(MockProvider::new(script));
+        let (events_tx, mut events_rx) = mpsc::channel(64);
+        let broker =
+            std::sync::Arc::new(ApprovalBroker::new(ApprovalMode::Auto, events_tx.clone()));
+        let dir = tempfile::tempdir().unwrap();
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let req = AgentRequest {
+            workspace_root: dir.path().to_path_buf(),
+            provider,
+            model: "m".into(),
+            history: vec![Message::text(Role::User, "go")],
+            tools: vec![Box::new(SleepTool)],
+            approvals: broker,
+            events: events_tx,
+            cancel: cancel.clone(),
+            max_iterations: 5,
+        };
+        let handle = tokio::spawn(run(req));
+        // Cancel ~100ms in, while the 30s SleepTool is mid-execute.
+        let canceller = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            canceller.cancel();
+        });
+        let result = tokio::time::timeout(std::time::Duration::from_secs(5), handle)
+            .await
+            .expect("run must return within 5s of cancellation")
+            .unwrap();
+        assert!(matches!(
+            result.error,
+            Some(crate::core::error::Error::Cancelled)
+        ));
+        let mut saw_cancelled = false;
+        while let Ok(ev) = events_rx.try_recv() {
+            if ev == AgentEvent::Cancelled {
+                saw_cancelled = true;
+            }
+        }
+        assert!(saw_cancelled);
     }
 }

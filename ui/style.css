@@ -134,6 +134,16 @@ button:hover, select:hover { border-color: var(--accent); }
   background: var(--ok);
   flex-shrink: 0;
 }
+.conv-delete {
+  visibility: hidden;
+  padding: 0 4px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+.conversation:hover .conv-delete { visibility: visible; }
+.conv-delete:hover { color: var(--danger); }
 .dim { color: var(--text-dim); font-size: 12px; }
 
 .bubble { max-width: 80%; margin: 6px 0; padding: 10px 14px; border-radius: 10px; }

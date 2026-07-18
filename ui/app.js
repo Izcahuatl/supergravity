@@ -67,6 +67,24 @@ export function renderSidebar() {
         dot.className = "running-dot";
         el.appendChild(dot);
       }
+      const del = document.createElement("button");
+      del.className = "conv-delete";
+      del.textContent = "✕";
+      del.title = "Delete conversation";
+      del.onclick = guard(async (e) => {
+        e.stopPropagation();
+        if (!confirm(`Delete "${conv.title}"?`)) return;
+        await api.deleteConversation(conv.id);
+        state.conversations.set(ws.id, await api.listConversations(ws.id));
+        if (state.active?.id === conv.id) {
+          state.active = null;
+          $("chat-title").textContent = "Select or create a conversation";
+          $("composer").classList.add("hidden");
+          $("messages").innerHTML = "";
+        }
+        renderSidebar();
+      });
+      el.appendChild(del);
       el.onclick = guard(() => selectConversation(conv));
       wsEl.appendChild(el);
     }
@@ -133,7 +151,11 @@ $("new-conversation").onclick = guard(async () => {
     return;
   }
   const ws = state.workspaces.find((w) => w.id === state.active?.workspace_id) || state.workspaces[0];
-  const provider = state.providers.find((p) => p.models.length > 0) || state.providers[0];
+  const provider =
+    state.providers.find((p) => p.has_key && p.models.length > 0) ||
+    state.providers.find((p) => p.kind === "ollama") ||
+    state.providers.find((p) => p.models.length > 0) ||
+    state.providers[0];
   if (!provider) {
     alert("Add a provider first (Settings).");
     return;

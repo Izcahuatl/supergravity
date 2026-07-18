@@ -27,5 +27,6 @@ export const api = {
   deleteProvider: (id) => invoke("delete_provider", { id }),
   setApiKey: (providerId, key) => invoke("set_api_key", { providerId, key }),
   deleteApiKey: (providerId) => invoke("delete_api_key", { providerId }),
+  listLocalModels: (providerId) => invoke("list_local_models", { providerId }),
   onAgentEvent: (handler) => listen("agent-event", (e) => handler(e.payload)),
 };

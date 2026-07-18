@@ -32,6 +32,7 @@ pub fn run() {
             commands::delete_provider,
             commands::set_api_key,
             commands::delete_api_key,
+            commands::list_local_models,
             commands::get_initial_state,
             commands::set_ui_state,
             agent_runner::send_message,

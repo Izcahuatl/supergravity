@@ -10,6 +10,7 @@ export function initSettings(_state, refreshProviders) {
   refreshProvidersFn = refreshProviders;
   $("open-settings").onclick = () => {
     renderSettings();
+    renderWorkspaces();
     $("settings").classList.remove("hidden");
   };
   $("close-settings").onclick = () => $("settings").classList.add("hidden");
@@ -104,6 +105,18 @@ function renderSettings() {
     actions.append(mkBtn("p-save", "Save"), mkBtn("p-set-key", "Set API key"));
     if (p.has_key) actions.append(mkBtn("p-del-key", "Delete key"));
     actions.append(mkBtn("p-delete", "Delete provider"));
+    if (p.kind === "ollama") {
+      const fetchBtn = mkBtn("p-fetch", "Fetch models");
+      fetchBtn.onclick = guard(async () => {
+        const models = await api.listLocalModels(p.id);
+        if (models.length === 0) {
+          alert("No models on the Ollama server — pull one first (ollama pull …).");
+          return;
+        }
+        row.querySelector(".p-models").value = models.join(", ");
+      });
+      actions.appendChild(fetchBtn);
+    }
 
     row.append(head, baseLabel, modelsLabel, actions);
     row.querySelector(".p-save").onclick = guard(async () => {
@@ -113,14 +126,29 @@ function renderSettings() {
       await refreshProvidersFn();
       renderSettings();
     });
-    row.querySelector(".p-set-key").onclick = guard(async () => {
-      const key = prompt(`API key for ${p.label} (stored in OS keychain):`);
-      if (key) {
-        await api.setApiKey(p.id, key.trim());
+    row.querySelector(".p-set-key").onclick = () => {
+      // WebView2 doesn't support window.prompt — inline password input instead.
+      const keyRow = document.createElement("div");
+      keyRow.className = "provider-actions";
+      const input = document.createElement("input");
+      input.type = "password";
+      input.placeholder = `API key for ${p.label}`;
+      const save = document.createElement("button");
+      save.textContent = "Save key";
+      const cancelBtn = document.createElement("button");
+      cancelBtn.textContent = "Cancel";
+      keyRow.append(input, save, cancelBtn);
+      actions.replaceWith(keyRow);
+      input.focus();
+      save.onclick = guard(async () => {
+        const key = input.value.trim();
+        if (!key) return;
+        await api.setApiKey(p.id, key);
         p.has_key = true;
         renderSettings();
-      }
-    });
+      });
+      cancelBtn.onclick = () => renderSettings();
+    };
     const delKey = row.querySelector(".p-del-key");
     if (delKey) {
       delKey.onclick = guard(async () => {
@@ -136,6 +164,41 @@ function renderSettings() {
         renderSettings();
       }
     });
+    list.appendChild(row);
+  }
+}
+
+export function renderWorkspaces() {
+  const list = $("workspace-list-settings");
+  list.innerHTML = "";
+  for (const ws of state.workspaces) {
+    const row = document.createElement("div");
+    row.className = "provider-row";
+    const label = document.createElement("div");
+    label.className = "provider-head";
+    const strong = document.createElement("strong");
+    strong.textContent = ws.name;
+    const path = document.createElement("span");
+    path.className = "dim";
+    path.textContent = ws.path;
+    const btn = document.createElement("button");
+    btn.textContent = "Remove";
+    btn.onclick = guard(async () => {
+      if (!confirm(`Remove workspace "${ws.name}" and ALL its conversations?`)) return;
+      await api.removeWorkspace(ws.id);
+      state.workspaces = await api.listWorkspaces();
+      state.conversations.delete(ws.id);
+      if (state.active?.workspace_id === ws.id) {
+        state.active = null;
+        $("chat-title").textContent = "Select or create a conversation";
+        $("composer").classList.add("hidden");
+        $("messages").innerHTML = "";
+      }
+      renderSidebar();
+      renderWorkspaces();
+    });
+    label.append(strong, " ", path, " ", btn);
+    row.appendChild(label);
     list.appendChild(row);
   }
 }

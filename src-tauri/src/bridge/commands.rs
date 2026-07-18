@@ -164,6 +164,42 @@ pub async fn delete_api_key_impl(state: &AppState, provider_id: String) -> Resul
     block(move || s.upsert_provider(&cfg)).await
 }
 
+/// Model names from a local Ollama server (`GET {base}/api/tags`).
+pub async fn list_local_models_impl(state: &AppState, provider_id: String) -> Result<Vec<String>> {
+    let cfg = {
+        let s = state.store.clone();
+        block(move || s.get_provider(&provider_id)).await?
+    };
+    if cfg.kind != crate::core::types::ProviderKind::Ollama {
+        return Err(Error::Tool(
+            "model listing is only supported for Ollama".into(),
+        ));
+    }
+    let base = cfg
+        .base_url
+        .clone()
+        .unwrap_or_else(|| "http://localhost:11434".into());
+    let url = format!("{}/api/tags", base.trim_end_matches('/'));
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(Error::Http)?;
+    let resp = client.get(&url).send().await.map_err(Error::Http)?;
+    let body: serde_json::Value = resp.json().await.map_err(Error::Http)?;
+    Ok(parse_tags(&body))
+}
+
+fn parse_tags(body: &serde_json::Value) -> Vec<String> {
+    body["models"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|m| m["name"].as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// Insert the four provider presets on first run (providers table empty).
 pub async fn seed_presets_if_empty_impl(state: &AppState) -> Result<()> {
     let existing = {
@@ -358,6 +394,16 @@ pub async fn delete_api_key(
 }
 
 #[tauri::command]
+pub async fn list_local_models(
+    state: tauri::State<'_, AppState>,
+    provider_id: String,
+) -> std::result::Result<Vec<String>, String> {
+    list_local_models_impl(&state, provider_id)
+        .await
+        .map_err(estr)
+}
+
+#[tauri::command]
 pub async fn get_initial_state(
     state: tauri::State<'_, AppState>,
 ) -> std::result::Result<InitialState, String> {
@@ -492,6 +538,23 @@ mod tests {
         let after = get_initial_state_impl(&state).await.unwrap();
         assert_eq!(after.config.last_workspace_id.as_deref(), Some("w1"));
         assert_eq!(after.config.last_conversation_id.as_deref(), Some("c1"));
+    }
+
+    #[test]
+    fn parse_tags_extracts_names() {
+        let body = serde_json::json!({
+            "models": [
+                {"name": "qwen3:0.6b", "model": "qwen3:0.6b", "size": 522_000_000_u64},
+                {"name": "llama3.2:latest"},
+                {"size": 123}
+            ]
+        });
+        assert_eq!(
+            parse_tags(&body),
+            vec!["qwen3:0.6b".to_string(), "llama3.2:latest".to_string()]
+        );
+        assert!(parse_tags(&serde_json::json!({})).is_empty());
+        assert!(parse_tags(&serde_json::json!({"models": "nope"})).is_empty());
     }
 
     #[tokio::test]
