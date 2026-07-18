@@ -102,3 +102,36 @@ button:hover, select:hover { border-color: var(--accent); }
 
 #settings-panel header { display: flex; justify-content: space-between; align-items: center; }
 #settings-panel input { background: var(--bg-input); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin: 4px 0; width: 100%; font: inherit; }
+
+.workspace { margin-bottom: 6px; }
+.workspace-header {
+  font-weight: 600;
+  padding: 6px 6px 2px;
+  color: var(--text-dim);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.conversation {
+  padding: 5px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--text);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.conversation:hover { background: var(--bg-input); }
+.conversation.active { background: var(--bg-input); outline: 1px solid var(--accent); }
+.running-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+  flex-shrink: 0;
+}
+.dim { color: var(--text-dim); font-size: 12px; }
