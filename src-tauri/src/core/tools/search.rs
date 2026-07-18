@@ -118,7 +118,7 @@ impl Tool for GlobTool {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "glob".into(),
-            description: "Find workspace files matching a glob pattern like \"**/*.rs\".".into(),
+            description: "Find workspace files matching a glob pattern like \"**/*.rs\". Use this (not read_file) when you know a pattern, not a concrete path.".into(),
             params_schema: json!({
                 "type": "object",
                 "properties": {"pattern": {"type": "string"}},

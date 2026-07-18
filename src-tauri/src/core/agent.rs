@@ -373,6 +373,9 @@ pub fn system_prompt(
          Those results are outputs of YOUR tool calls, executed by the Supergravity runtime — \
          the user does not run tools or type commands themselves. \
          Never describe tool results as something the user did.\n\
+         Act with tools, don't just describe: when the user asks you to create, change, run, find, \
+         or read something, make the tool call immediately — never reply with only an explanation \
+         of what you would do. If a file or command might not exist, try it and handle the error.\n\
          Example of a correct loop: you call run_shell {{\"command\": \"echo hello\"}}; a tool message returns \
          \"[output of run_shell \\\"echo hello\\\" — exit code 0]\\nhello\"; you then tell the user: \
          It printed: hello. The user ran nothing.\n\

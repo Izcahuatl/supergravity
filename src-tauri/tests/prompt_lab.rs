@@ -15,7 +15,9 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-const MODEL: &str = "qwen3:0.6b";
+fn model() -> String {
+    std::env::var("LAB_MODEL").unwrap_or_else(|_| "qwen3:0.6b".into())
+}
 
 struct Lab {
     workspace: tempfile::TempDir,
@@ -43,14 +45,14 @@ impl Lab {
             agent::system_prompt(self.workspace.path(), ApprovalMode::Auto, &default_tools()),
         )];
         with_system.extend(messages.iter().cloned());
-        self.bodies.push(ollama::build_body(MODEL, &with_system, &default_tools_specs()));
+        self.bodies.push(ollama::build_body(&model(), &with_system, &default_tools_specs()));
 
         let (events_tx, mut events_rx) = mpsc::channel::<AgentEvent>(4096);
         let broker = Arc::new(ApprovalBroker::new(ApprovalMode::Auto, events_tx.clone()));
         let req = AgentRequest {
             workspace_root: self.workspace.path().to_path_buf(),
             provider,
-            model: MODEL.into(),
+            model: model(),
             history: messages,
             tools: default_tools(),
             approvals: broker,

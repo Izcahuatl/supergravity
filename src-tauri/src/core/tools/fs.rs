@@ -24,7 +24,7 @@ impl Tool for ReadFileTool {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "read_file".into(),
-            description: "Read a UTF-8 text file in the workspace. Returns lines with optional 1-based offset and limit.".into(),
+            description: "Read a UTF-8 text file in the workspace. Returns lines with optional 1-based offset and limit. The `path` must be a concrete file path — never a glob pattern.".into(),
             params_schema: json!({
                 "type": "object",
                 "properties": {
