@@ -25,6 +25,14 @@ pub struct ConversationRow {
     pub updated_at: i64,
 }
 
+/// A message with its timestamp, for the bridge/UI layer.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MessageRow {
+    pub role: Role,
+    pub parts: Vec<crate::core::types::ContentPart>,
+    pub created_at: i64,
+}
+
 /// SQLite-backed persistence. All methods are synchronous — async callers
 /// (the Tauri bridge) MUST invoke them via `tokio::task::spawn_blocking`
 /// or Tauri's sync-command mechanism, never directly on a runtime worker.
@@ -318,17 +326,22 @@ impl Store {
     }
 
     pub fn get_messages(&self, conversation_id: &str) -> Result<Vec<Message>> {
+        Ok(self.get_message_rows(conversation_id)?.into_iter().map(|r| Message { role: r.role, parts: r.parts }).collect())
+    }
+
+    /// Timestamped messages for the bridge/UI layer.
+    pub fn get_message_rows(&self, conversation_id: &str) -> Result<Vec<MessageRow>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT role, parts_json FROM messages WHERE conversation_id = ?1 ORDER BY id",
+            "SELECT role, parts_json, created_at FROM messages WHERE conversation_id = ?1 ORDER BY id",
         )?;
         let rows = stmt
             .query_map(params![conversation_id], |r| {
-                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?))
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         let mut out = Vec::new();
-        for (role, parts_json) in rows {
+        for (role, parts_json, created_at) in rows {
             let role = match role.as_str() {
                 "system" => Role::System,
                 "assistant" => Role::Assistant,
@@ -336,7 +349,7 @@ impl Store {
                 _ => Role::User,
             };
             let parts = serde_json::from_str(&parts_json)?;
-            out.push(Message { role, parts });
+            out.push(MessageRow { role, parts, created_at });
         }
         Ok(out)
     }

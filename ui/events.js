@@ -1,4 +1,4 @@
-import { state } from "./app.js";
+import { state, refreshMessages } from "./app.js";
 import { api } from "./api.js";
 import { addBubble, renderTextPart, renderToolCallCard, prettyArgs } from "./render.js";
 
@@ -76,6 +76,9 @@ export function handleAgentEvent(payload) {
       streamBuffers.delete(conversation_id);
       pendingApprovals.delete(conversation_id);
       $("stop-agent").classList.add("hidden");
+      // Persisted history lands just after message_done — refresh shortly after
+      // so the worked-for line and change cards render from the store.
+      setTimeout(() => refreshMessages(), 400);
       break;
     case "error": {
       currentTextBubble = null;

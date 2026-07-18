@@ -2,6 +2,7 @@ import { api } from "./api.js";
 import { renderMessages } from "./render.js";
 import { initSettings } from "./settings.js";
 import { handleAgentEvent, resetEventState, resumeLiveState } from "./events.js";
+import { initReview } from "./diffview.js";
 
 export const state = {
   workspaces: [],
@@ -9,6 +10,7 @@ export const state = {
   conversations: new Map(), // workspaceId -> ConversationRow[]
   active: null, // active ConversationRow
   running: new Set(), // conversation_ids with a live agent
+  showAll: new Set(), // workspace_ids with expanded conversation lists
   streaming: false,
 };
 
@@ -29,6 +31,7 @@ async function boot() {
   }
   renderSidebar();
   initSettings(state, refreshProviders);
+  initReview();
   // Restore last conversation if it still exists.
   let restored = false;
   if (initial.config.last_conversation_id) {
@@ -42,6 +45,16 @@ async function boot() {
     }
   }
   if (!restored) renderEmptyState();
+}
+
+/// Refetch + re-render the active conversation's history (e.g. after a run
+/// completes, so the worked-for line and change cards appear).
+export async function refreshMessages() {
+  if (!state.active) return;
+  const conv = state.active;
+  const msgs = await api.getMessages(conv.id);
+  if (state.active?.id !== conv.id) return;
+  renderMessages(msgs);
 }
 
 /// Welcome screen when no conversation is selected.
@@ -76,6 +89,17 @@ export async function refreshProviders() {
   renderModelPicker();
 }
 
+function relTime(ts) {
+  const diff = Date.now() / 1000 - ts;
+  if (diff < 60) return `${Math.round(diff)}s`;
+  if (diff < 3600) return `${Math.round(diff / 60)}m`;
+  if (diff < 86400) return `${Math.round(diff / 3600)}h`;
+  if (diff < 86400 * 30) return `${Math.round(diff / 86400)}d`;
+  return `${Math.round(diff / (86400 * 30))}mo`;
+}
+
+const CONV_CAP = 5;
+
 export function renderSidebar() {
   const list = $("workspace-list");
   list.innerHTML = "";
@@ -88,10 +112,19 @@ export function renderSidebar() {
     header.title = ws.path;
     wsEl.appendChild(header);
     const convs = state.conversations.get(ws.id) || [];
-    for (const conv of convs) {
+    const showAll = state.showAll.has(ws.id);
+    const visible = showAll ? convs : convs.slice(0, CONV_CAP);
+    for (const conv of visible) {
       const el = document.createElement("div");
       el.className = "conversation" + (state.active?.id === conv.id ? " active" : "");
-      el.textContent = conv.title;
+      const title = document.createElement("span");
+      title.className = "conv-title";
+      title.textContent = conv.title;
+      el.appendChild(title);
+      const time = document.createElement("span");
+      time.className = "conv-time dim";
+      time.textContent = relTime(conv.updated_at);
+      el.appendChild(time);
       if (state.running.has(conv.id)) {
         const dot = document.createElement("span");
         dot.className = "running-dot";
@@ -119,6 +152,17 @@ export function renderSidebar() {
       el.appendChild(del);
       el.onclick = guard(() => selectConversation(conv));
       wsEl.appendChild(el);
+    }
+    if (convs.length > CONV_CAP) {
+      const more = document.createElement("div");
+      more.className = "conversation see-all dim";
+      more.textContent = showAll ? "Show less" : `See all (${convs.length})`;
+      more.onclick = () => {
+        if (showAll) state.showAll.delete(ws.id);
+        else state.showAll.add(ws.id);
+        renderSidebar();
+      };
+      wsEl.appendChild(more);
     }
     list.appendChild(wsEl);
   }

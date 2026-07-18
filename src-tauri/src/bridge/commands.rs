@@ -2,7 +2,7 @@ use crate::bridge::state::AppState;
 use crate::core::config::AppConfig;
 use crate::core::error::{Error, Result};
 use crate::core::store::{ConversationRow, WorkspaceRow};
-use crate::core::types::{Message, ProviderConfig};
+use crate::core::types::ProviderConfig;
 use serde::Serialize;
 use std::path::Path;
 
@@ -94,9 +94,9 @@ pub async fn delete_conversation_impl(state: &AppState, id: String) -> Result<()
     block(move || s.delete_conversation(&id)).await
 }
 
-pub async fn get_messages_impl(state: &AppState, conversation_id: String) -> Result<Vec<Message>> {
+pub async fn get_messages_impl(state: &AppState, conversation_id: String) -> Result<Vec<crate::core::store::MessageRow>> {
     let s = state.store.clone();
-    block(move || s.get_messages(&conversation_id)).await
+    block(move || s.get_message_rows(&conversation_id)).await
 }
 
 pub async fn set_approval_mode_impl(
@@ -343,7 +343,7 @@ pub async fn delete_conversation(
 pub async fn get_messages(
     state: tauri::State<'_, AppState>,
     conversation_id: String,
-) -> std::result::Result<Vec<Message>, String> {
+) -> std::result::Result<Vec<crate::core::store::MessageRow>, String> {
     get_messages_impl(&state, conversation_id)
         .await
         .map_err(estr)
@@ -595,6 +595,9 @@ mod tests {
         let msg = Message::text(Role::User, "hello");
         state.store.append_message(&cid, &msg).unwrap();
         let msgs = get_messages_impl(&state, cid).await.unwrap();
-        assert_eq!(msgs, vec![msg]);
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].role, msg.role);
+        assert_eq!(msgs[0].parts, msg.parts);
+        assert!(msgs[0].created_at > 0);
     }
 }

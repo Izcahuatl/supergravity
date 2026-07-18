@@ -36,10 +36,11 @@ export function renderMarkdown(src) {
       const paragraphs = parts[i].split(/\n{2,}/);
       for (const p of paragraphs) {
         if (!p.trim()) continue;
-        // Line-by-line: consecutive list lines form a <ul>; other lines form
-        // paragraphs — mixed list+text blocks keep both (no dropped lines).
+        // Line-by-line: consecutive list lines form a <ul>; pipe lines form a
+        // <table>; other lines form paragraphs — mixed blocks keep everything.
         let listItems = [];
         let para = [];
+        let tableRows = [];
         const flushPara = () => {
           if (para.length) {
             // Single newlines become <br> — LLM output uses them structurally.
@@ -53,17 +54,40 @@ export function renderMarkdown(src) {
             listItems = [];
           }
         };
+        const flushTable = () => {
+          if (!tableRows.length) return;
+          const cells = (row) =>
+            row.replace(/^\s*\|/, "").replace(/\|\s*$/, "").split("|").map((c) => c.trim());
+          const isSep = (row) => /^[\s|:-]+$/.test(row);
+          let out = "<table>";
+          let headerDone = false;
+          for (const row of tableRows) {
+            if (isSep(row)) continue;
+            const tag = headerDone ? "td" : "th";
+            out += `<tr>${cells(row).map((c) => `<${tag}>${inline(c)}</${tag}>`).join("")}</tr>`;
+            headerDone = true;
+          }
+          html += out + "</table>";
+          tableRows = [];
+        };
         for (const line of p.split("\n")) {
           const m = line.match(/^\s*[-*] (.*)$/);
           if (m) {
             flushPara();
+            flushTable();
             listItems.push(`<li>${inline(m[1])}</li>`);
+          } else if (/^\s*\|/.test(line)) {
+            flushPara();
+            flushList();
+            tableRows.push(line);
           } else {
             flushList();
+            flushTable();
             para.push(line);
           }
         }
         flushList();
+        flushTable();
         flushPara();
       }
     }

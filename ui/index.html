@@ -21,13 +21,24 @@
           <span id="chat-title">Select or create a conversation</span>
           <button id="stop-agent" class="hidden">■ Stop</button>
         </header>
-        <div id="messages"></div>
-        <div id="composer" class="hidden">
-          <textarea id="input" rows="3" placeholder="Ask anything…"></textarea>
-          <div id="composer-bar">
-            <span id="model-slot"></span>
-            <button id="mode-toggle" title="Approval mode: Manual = approve every write/exec">Manual</button>
-            <button id="send">Send</button>
+        <div id="main-split">
+          <div id="chat-pane">
+            <div id="messages"></div>
+            <div id="composer" class="hidden">
+              <textarea id="input" rows="3" placeholder="Ask anything, @ to mention, / for actions"></textarea>
+              <div id="composer-bar">
+                <span id="model-slot"></span>
+                <button id="mode-toggle" title="Approval mode: Manual = approve every write/exec">Manual</button>
+                <button id="send">Send</button>
+              </div>
+            </div>
+          </div>
+          <div id="review-panel" class="hidden">
+            <div id="review-header">
+              <span>Review Changes</span>
+              <button id="close-review">✕</button>
+            </div>
+            <div id="review-body"></div>
           </div>
         </div>
       </main>
