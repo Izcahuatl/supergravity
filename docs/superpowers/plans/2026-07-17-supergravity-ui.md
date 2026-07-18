@@ -1302,7 +1302,7 @@ git commit -m "feat(bridge): agent runner with event pump and cancellation"
 - Modify: `ui/app.js` (replace placeholder)
 - Modify: `ui/style.css` (extend for sidebar lists)
 
-- [ ] **Step 1: `ui/api.js`**
+- [x] **Step 1: `ui/api.js`**
 
 ```js
 // Thin wrappers over the Tauri bridge.
@@ -1338,7 +1338,7 @@ export const api = {
 };
 ```
 
-- [ ] **Step 2: `ui/app.js` — app state, sidebar, conversation selection**
+- [x] **Step 2: `ui/app.js` — app state, sidebar, conversation selection**
 
 ```js
 import { api } from "./api.js";
@@ -1355,6 +1355,12 @@ export const state = {
 };
 
 const $ = (id) => document.getElementById(id);
+
+// Wrap async UI handlers: surface failures instead of silent unhandled rejections.
+const guard = (fn) => (e) => fn(e).catch((err) => {
+  console.error(err);
+  alert(String(err));
+});
 
 async function boot() {
   const initial = await api.getInitialState();
@@ -1403,7 +1409,7 @@ export function renderSidebar() {
         dot.className = "running-dot";
         el.appendChild(dot);
       }
-      el.onclick = () => selectConversation(conv);
+      el.onclick = guard(() => selectConversation(conv));
       wsEl.appendChild(el);
     }
     list.appendChild(wsEl);
@@ -1412,14 +1418,16 @@ export function renderSidebar() {
 
 export async function selectConversation(conv) {
   state.active = conv;
+  renderSidebar(); // instant feedback, before the fetch
   $("chat-title").textContent = conv.title;
   $("composer").classList.remove("hidden");
   renderModelPicker();
   renderModeToggle(conv.approval_mode);
   const msgs = await api.getMessages(conv.id);
+  // A newer click may have switched away while the fetch was in flight.
+  if (state.active?.id !== conv.id) return;
   renderMessages(msgs);
-  renderSidebar();
-  api.setUiState(conv.workspace_id, conv.id);
+  api.setUiState(conv.workspace_id, conv.id).catch(() => {});
 }
 
 export function renderModeToggle(mode) {
@@ -1449,42 +1457,46 @@ export function renderModelPicker() {
     slot.appendChild(hint);
     return;
   }
-  select.onchange = async () => {
+  select.onchange = guard(async () => {
     const [providerId, ...rest] = select.value.split("/");
     const model = rest.join("/");
     await api.updateConversationModel(conv.id, providerId, model);
     conv.provider_id = providerId;
     conv.model = model;
-  };
+  });
   slot.appendChild(select);
 }
 
-$("new-conversation").onclick = async () => {
+$("new-conversation").onclick = guard(async () => {
   if (state.workspaces.length === 0) {
     alert("Add a workspace first (Settings → Add workspace).");
     return;
   }
-  const ws = state.workspaces[0];
+  const ws = state.workspaces.find((w) => w.id === state.active?.workspace_id) || state.workspaces[0];
   const provider = state.providers.find((p) => p.models.length > 0) || state.providers[0];
   if (!provider) {
     alert("Add a provider first (Settings).");
     return;
   }
   const model = provider.models[0] || "";
+  if (!model) {
+    alert(`Provider ${provider.label} has no models — add one in Settings.`);
+    return;
+  }
   const id = await api.createConversation(ws.id, "New Conversation", provider.id, model);
   state.conversations.set(ws.id, await api.listConversations(ws.id));
   renderSidebar();
   const conv = state.conversations.get(ws.id).find((c) => c.id === id);
   if (conv) await selectConversation(conv);
-};
+});
 
-$("mode-toggle").onclick = async () => {
+$("mode-toggle").onclick = guard(async () => {
   if (!state.active) return;
   const next = state.active.approval_mode === "auto" ? "manual" : "auto";
   await api.setApprovalMode(state.active.id, next);
   state.active.approval_mode = next;
   renderModeToggle(next);
-};
+});
 
 boot().catch((e) => {
   document.getElementById("chat-title").textContent = `Boot failed: ${e}`;
@@ -1515,7 +1527,7 @@ export function initSettings(_state, _refresh) {
 }
 ```
 
-- [ ] **Step 3: Extend `ui/style.css` — sidebar lists**
+- [x] **Step 3: Extend `ui/style.css` — sidebar lists**
 
 ```css
 .workspace { margin-bottom: 6px; }
@@ -1552,11 +1564,11 @@ export function initSettings(_state, _refresh) {
 .dim { color: var(--text-dim); font-size: 12px; }
 ```
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 `cargo tauri dev` — sidebar renders; settings overlay opens/closes; "+ New Conversation" after adding a workspace via SQL-less path (Settings stub can't add workspaces yet — verify conversation creation by adding a workspace row manually via a temporary test OR defer interactive check to U6; minimum bar: `cargo build` clean, `cargo test` green, window opens without console errors).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /b/Jetbrains/projects/kimislop
@@ -1567,6 +1579,10 @@ git commit -m "feat(ui): sidebar, workspace/conversation navigation, model picke
 ---
 
 ### Task U5: Chat — streaming, tool cards, approvals, markdown-lite
+
+**Gates from the U4 review (hard requirements, not optional):**
+1. This task REPLACES the `ui/render.js` stub (which injects unescaped content via innerHTML) before any send path goes live — the markdown renderer escapes everything.
+2. After the first `sendMessage` in a conversation, refresh the conversation list + `#chat-title` — the bridge auto-renames "New Conversation" and the sidebar would otherwise stay stale until restart.
 
 **Files:**
 - Create: `ui/render.js` (replace stub), `ui/markdown.js`, `ui/events.js`
@@ -1841,6 +1857,15 @@ async function send() {
   $("stop-agent").classList.remove("hidden");
   try {
     await api.sendMessage(state.active.id, text);
+    // The bridge may have auto-renamed the conversation on first send — refresh.
+    const convs = await api.listConversations(state.active.workspace_id);
+    state.conversations.set(state.active.workspace_id, convs);
+    const fresh = convs.find((c) => c.id === state.active.id);
+    if (fresh) {
+      state.active = fresh;
+      $("chat-title").textContent = fresh.title;
+    }
+    renderSidebar();
   } catch (e) {
     const err = document.createElement("div");
     err.className = "bubble error";
