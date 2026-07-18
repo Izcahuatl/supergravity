@@ -1,6 +1,7 @@
 import { state, refreshMessages } from "./app.js";
 import { api } from "./api.js";
 import { addBubble, renderTextPart, renderToolCallCard, prettyArgs } from "./render.js";
+import { icon } from "./icons.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -110,7 +111,8 @@ export function buildApprovalCard(conversationId, data) {
   card.dataset.callId = data.tool_call_id;
   const head = document.createElement("div");
   head.className = "tool-head";
-  head.textContent = `⚠ ${data.name} needs approval`;
+  head.innerHTML = `${icon("alert", 13)}<span></span>`;
+  head.querySelector("span").textContent = `${data.name} needs approval`;
   const args = document.createElement("pre");
   args.className = "tool-args";
   args.textContent = prettyArgs(data.args_json);

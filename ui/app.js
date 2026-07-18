@@ -3,6 +3,7 @@ import { renderMessages } from "./render.js";
 import { initSettings } from "./settings.js";
 import { handleAgentEvent, resetEventState, resumeLiveState } from "./events.js";
 import { initReview } from "./diffview.js";
+import { icon } from "./icons.js";
 
 export const state = {
   workspaces: [],
@@ -99,7 +100,7 @@ function populateCenterProject() {
   const p = preferredProvider();
   $("center-model").textContent = p
     ? `${p.label} · ${p.models[0] ?? "(no model — set one in Settings)"}`
-    : "no provider — open ⚙ Settings";
+    : "no provider — open Settings";
 }
 
 async function sendFromCenter() {
@@ -151,7 +152,8 @@ export function renderSidebar() {
     wsEl.className = "workspace";
     const header = document.createElement("div");
     header.className = "workspace-header";
-    header.textContent = `📁 ${ws.name}`;
+    header.innerHTML = `${icon("folder", 13)}<span class="ws-name"></span>`;
+    header.querySelector(".ws-name").textContent = ws.name;
     header.title = ws.path;
     wsEl.appendChild(header);
     const convs = state.conversations.get(ws.id) || [];
@@ -217,7 +219,8 @@ export async function selectConversation(conv) {
   $("messages").classList.remove("hidden");
   renderSidebar(); // instant feedback, before the fetch
   $("chat-title").textContent = conv.title;
-  $("chat-ws").textContent = `📁 ${workspaceName(conv.workspace_id)}`;
+  $("chat-ws").innerHTML = `${icon("folder", 13)}<span></span>`;
+  $("chat-ws").querySelector("span").textContent = workspaceName(conv.workspace_id);
   $("composer").classList.remove("hidden");
   renderModelPicker();
   renderModeToggle(conv.approval_mode);

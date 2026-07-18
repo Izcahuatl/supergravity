@@ -1,3 +1,5 @@
+import { icon } from "./icons.js";
+
 // Review Changes panel: line-based diff rendering for edit_file/write_file changes.
 
 const $ = (id) => document.getElementById(id);
@@ -51,7 +53,8 @@ export function openReview(changes) {
     head.className = "review-file-head";
     const name = document.createElement("span");
     name.className = "review-file-name";
-    name.textContent = `📄 ${ch.path}`;
+    name.innerHTML = `${icon("file", 13)}<span></span>`;
+    name.querySelector("span").textContent = ch.path;
     const stats = document.createElement("span");
     stats.className = "review-stats";
     const plus = document.createElement("span");

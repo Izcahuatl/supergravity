@@ -515,3 +515,22 @@ button:active { transform: scale(0.97); }
   border-color: var(--accent);
 }
 #send:hover, #center-send:hover { background: rgba(139, 92, 246, 0.3); }
+
+/* --- vector icons --- */
+.icon { vertical-align: -2px; flex-shrink: 0; }
+.workspace-header { display: flex; align-items: center; gap: 5px; }
+.workspace-header .icon { color: var(--text-dim); }
+#chat-ws { display: inline-flex; align-items: center; gap: 5px; }
+#chat-ws .icon { color: var(--text-dim); }
+.tool-head { display: flex; align-items: center; gap: 6px; }
+.tool-head .icon { color: var(--accent); }
+.approval-card .tool-head .icon { color: var(--warn); }
+.review-file-name { display: inline-flex; align-items: center; gap: 5px; }
+.review-file-name .icon { color: var(--text-dim); }
+.worked-step { display: flex; align-items: center; gap: 5px; }
+.worked-step .icon-check-circle { color: var(--ok); }
+.worked-step .icon-x-circle { color: var(--danger); }
+.worked-step.err .icon { color: var(--danger); }
+#open-settings { display: inline-flex; align-items: center; gap: 6px; }
+#stop-agent { display: inline-flex; align-items: center; gap: 5px; }
+.center-project-row .icon { color: var(--text-dim); }

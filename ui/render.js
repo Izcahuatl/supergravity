@@ -1,5 +1,6 @@
 import { renderMarkdown } from "./markdown.js";
 import { makeChange, openReview } from "./diffview.js";
+import { icon, TOOL_ICONS } from "./icons.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -38,7 +39,8 @@ export function renderToolCallCard(call) {
   card.className = "tool-card";
   const head = document.createElement("div");
   head.className = "tool-head";
-  head.textContent = `🔧 ${call.name}`;
+  head.innerHTML = `${icon(TOOL_ICONS[call.name] || "edit", 13)}<span></span>`;
+  head.querySelector("span").textContent = call.name;
   const args = document.createElement("pre");
   args.className = "tool-args";
   args.textContent = prettyArgs(call.args_json);
@@ -138,11 +140,11 @@ function renderWorkedFor(run, calls) {
   for (const call of calls) {
     const a = parseArgs(call.args_json);
     const verb = (STEP_VERBS[call.name] || ((a) => call.name))(a);
-    const step = document.createElement("div");
-    step.className = "worked-step dim";
     const failed = call.result?.is_error;
-    step.textContent = `${failed ? "✗" : "✓"} ${verb}`;
-    if (failed) step.classList.add("err");
+    const step = document.createElement("div");
+    step.className = "worked-step dim" + (failed ? " err" : "");
+    step.innerHTML = `${icon(failed ? "x-circle" : "check-circle", 12)}<span></span>`;
+    step.querySelector("span").textContent = verb;
     steps.appendChild(step);
   }
   head.onclick = () => {
