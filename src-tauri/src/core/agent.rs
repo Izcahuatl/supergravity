@@ -318,6 +318,21 @@ pub async fn run(req: AgentRequest) -> AgentOutcome {
         };
         produced.push(tool_msg.clone());
         if cancelled {
+            // Let live tool cards settle before the terminal event.
+            for part in &tool_msg.parts {
+                if let ContentPart::ToolResult { tool_call_id, content, .. } = part {
+                    if content == "cancelled by user" {
+                        let _ = req
+                            .events
+                            .send(AgentEvent::ToolCallFinished {
+                                tool_call_id: tool_call_id.clone(),
+                                ok: false,
+                                summary: "cancelled by user".into(),
+                            })
+                            .await;
+                    }
+                }
+            }
             let _ = req.events.send(AgentEvent::Cancelled).await;
             return AgentOutcome {
                 produced,
