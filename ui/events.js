@@ -37,6 +37,7 @@ export function handleAgentEvent(payload) {
       // The bubble may have been detached by a history re-render — recreate it.
       if (!currentTextBubble || !currentTextBubble.isConnected) {
         currentTextBubble = addBubble("assistant");
+        currentTextBubble.classList.add("streaming");
       }
       currentTextBubble.innerHTML = "";
       renderTextPart(currentTextBubble, raw);

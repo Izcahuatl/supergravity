@@ -31,7 +31,7 @@ export function renderMarkdown(src) {
     if (i % 2 === 1) {
       const nl = parts[i].indexOf("\n");
       const code = nl === -1 ? parts[i] : parts[i].slice(nl + 1);
-      html += `<pre><code>${code}</code></pre>`;
+      html += `<div class="codeblock"><button class="code-copy" title="Copy">⧉</button><pre><code>${code}</code></pre></div>`;
     } else {
       const paragraphs = parts[i].split(/\n{2,}/);
       for (const p of paragraphs) {

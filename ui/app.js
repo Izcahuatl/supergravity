@@ -228,6 +228,7 @@ export async function selectConversation(conv) {
   renderMessages(msgs);
   resumeLiveState(conv.id);
   api.setUiState(conv.workspace_id, conv.id).catch(() => {});
+  $("input").focus();
 }
 
 export function renderModeToggle(mode) {
@@ -304,6 +305,23 @@ $("mode-toggle").onclick = guard(async () => {
 
 boot().catch((e) => {
   document.getElementById("chat-title").textContent = `Boot failed: ${e}`;
+});
+
+// Copy buttons on code blocks (event delegation — buttons are inside .md).
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest(".code-copy");
+  if (!btn) return;
+  const code = btn.parentElement.querySelector("code");
+  if (code) {
+    navigator.clipboard.writeText(code.textContent).then(() => {
+      btn.textContent = "✓";
+      btn.classList.add("copied");
+      setTimeout(() => {
+        btn.textContent = "⧉";
+        btn.classList.remove("copied");
+      }, 1200);
+    });
+  }
 });
 
 api.onAgentEvent((payload) => {

@@ -369,3 +369,149 @@ details.think pre {
 .browse-row { display: flex; gap: 8px; }
 .browse-row input { flex: 1; }
 #center-send { min-width: 80px; }
+
+/* ===================== MOTION & POLISH LAYER ===================== */
+
+/* --- keyframes --- */
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes pulseDot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.8); }
+}
+@keyframes caretBlink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+@keyframes approvalGlow {
+  0%, 100% { border-color: var(--warn); }
+  50% { border-color: rgba(210, 153, 34, 0.45); }
+}
+@keyframes popIn {
+  from { opacity: 0; transform: scale(0.97); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+/* --- entrance motion --- */
+.bubble, .tool-card, .approval-card, .change-card, .worked-for, .review-file {
+  animation: fadeSlideIn 0.22s ease-out;
+}
+#messages > .empty-state { animation: fadeIn 0.35s ease-out; }
+#review-panel { animation: slideInRight 0.2s ease-out; }
+#settings { animation: fadeIn 0.16s ease-out; }
+#settings-panel { animation: popIn 0.16s ease-out; }
+.provider-row { animation: fadeSlideIn 0.18s ease-out; }
+
+/* --- interactive transitions --- */
+button, select, .conversation {
+  transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease, transform 0.06s ease;
+}
+button:active { transform: scale(0.97); }
+.conversation { border-left: 2px solid transparent; }
+.conversation:hover { border-left-color: var(--accent); }
+.conversation.active { border-left-color: var(--accent); outline: none; }
+.workspace-header { transition: color 0.14s ease; }
+
+/* --- streaming caret --- */
+.bubble.streaming > .md::after {
+  content: "▍";
+  color: var(--accent);
+  animation: caretBlink 1s steps(1) infinite;
+  margin-left: 1px;
+}
+
+/* --- running dot pulse --- */
+.running-dot { animation: pulseDot 1.4s ease-in-out infinite; }
+
+/* --- approval card attention --- */
+.approval-card { animation: fadeSlideIn 0.22s ease-out, approvalGlow 2.4s ease-in-out infinite; }
+
+/* --- tool status transitions --- */
+.tool-status { transition: color 0.2s ease; }
+
+/* --- scrollbars --- */
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: #34343e;
+  border-radius: 5px;
+  border: 2px solid var(--bg);
+}
+::-webkit-scrollbar-thumb:hover { background: #454552; }
+
+/* --- focus rings --- */
+#input:focus, #center-input:focus, #settings-panel input:focus {
+  outline: none;
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.18);
+}
+#input, #settings-panel input { transition: border-color 0.14s ease, box-shadow 0.14s ease; }
+
+/* --- code block + copy button --- */
+.codeblock { position: relative; }
+.code-copy {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 2px 7px;
+  font-size: 11px;
+  line-height: 1.4;
+  opacity: 0;
+  transition: opacity 0.14s ease, color 0.14s ease;
+  background: var(--bg-input);
+}
+.codeblock:hover .code-copy { opacity: 1; }
+.code-copy.copied { color: var(--ok); opacity: 1; }
+
+/* --- composer elevation --- */
+#composer {
+  background: linear-gradient(to top, rgba(30, 30, 34, 0.9), transparent);
+}
+#input { box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25); }
+.center-composer { box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35); }
+
+/* --- header refinement --- */
+#chat-header {
+  background: rgba(23, 23, 26, 0.85);
+  backdrop-filter: blur(8px);
+  z-index: 2;
+}
+
+/* --- sidebar polish --- */
+#sidebar { transition: width 0.18s ease; }
+#new-conversation {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.12);
+}
+#new-conversation:hover { background: rgba(139, 92, 246, 0.14); }
+
+/* --- stop button --- */
+#stop-agent {
+  animation: pulseDot 1.6s ease-in-out infinite;
+  border-color: var(--danger);
+}
+
+/* --- worked steps indent guide --- */
+.worked-step { transition: color 0.14s ease; }
+.worked-steps:hover .worked-step { color: var(--text); }
+
+/* --- send button accent --- */
+#send, #center-send {
+  background: rgba(139, 92, 246, 0.18);
+  border-color: var(--accent);
+}
+#send:hover, #center-send:hover { background: rgba(139, 92, 246, 0.3); }
