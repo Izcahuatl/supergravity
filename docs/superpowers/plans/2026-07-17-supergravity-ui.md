@@ -2271,7 +2271,7 @@ From the final whole-app review. Two Critical: Stop must interrupt a running she
 - Modify: `src-tauri/src/bridge/commands.rs` + `agent_runner.rs`-adjacent `mod.rs` (list_local_models command)
 - Modify: `ui/settings.js` (inline key input, workspace remove, Ollama fetch-models), `ui/index.html` (workspace list container), `ui/app.js` (delete-conversation button, provider preference), `ui/events.js` (stale buttons), `ui/api.js` (listLocalModels), `ui/style.css` (conv-delete, key row)
 
-- [ ] **Step 1: Core — cancel during tool execution (protocol-safe)**
+- [x] **Step 1: Core — cancel during tool execution (protocol-safe)**
 
 Cancelling inside the tool loop must close out the current AND all remaining tool calls with synthetic error results — a persisted assistant `tool_call` without a matching `tool_result` is rejected by OpenAI/Anthropic/Gemini on every later send, permanently poisoning the conversation.
 
@@ -2367,7 +2367,7 @@ In `src-tauri/src/core/agent.rs`, restructure the tool-execution loop so all THR
 
 Keep the existing `cancel_during_tool_execute_aborts` test (still passes), and add `cancel_during_tool_execute_produces_valid_history`: script one turn with TWO tool calls (echo + SleepTool), cancel ~100ms in, assert `outcome.error` is `Some(Error::Cancelled)` (with a 5s timeout on the whole run), and that `produced` contains a `Role::Tool` message with exactly 2 `ToolResult` parts — c1 echoed (`is_error: false`), c2 `"cancelled by user"` (`is_error: true`).
 
-- [ ] **Step 1b: Bridge — remove_workspace cancels running agents**
+- [x] **Step 1b: Bridge — remove_workspace cancels running agents**
 
 In `bridge/commands.rs`'s `remove_workspace_impl`, cancel any agents running in that workspace's conversations BEFORE deleting (parity with `delete_conversation_impl`):
 
@@ -2404,7 +2404,7 @@ Also in `list_local_models_impl`: check the response status before parsing (surf
 ```
 
 UI one-liners (same task): hide `#stop-agent` in BOTH active-view-clearing blocks (`ui/app.js` delete-conversation handler and `ui/settings.js` remove-workspace handler: `$("stop-agent").classList.add("hidden");`), and call `renderWorkspaces()` at the end of the workspace-add form handler in `ui/settings.js`.
-- [ ] **Step 2: Bridge — `list_local_models` command (Ollama /api/tags)**
+- [x] **Step 2: Bridge — `list_local_models` command (Ollama /api/tags)**
 
 In `bridge/commands.rs`:
 
@@ -2448,7 +2448,7 @@ pub async fn list_local_models(state: tauri::State<'_, AppState>, provider_id: S
 
 Register `commands::list_local_models` in `bridge/mod.rs`'s `generate_handler!`.
 
-- [ ] **Step 3: Settings — inline key input (no `window.prompt`)**
+- [x] **Step 3: Settings — inline key input (no `window.prompt`)**
 
 WebView2 does not support `window.prompt`. In `ui/settings.js`, replace the `p-set-key` handler:
 
@@ -2480,7 +2480,7 @@ WebView2 does not support `window.prompt`. In `ui/settings.js`, replace the `p-s
 
 (`actions` is the row's `.provider-actions` div built earlier; keep a reference to it.)
 
-- [ ] **Step 4: Settings — workspace list with remove**
+- [x] **Step 4: Settings — workspace list with remove**
 
 In `ui/index.html`, add above the workspace form:
 
@@ -2527,7 +2527,7 @@ export function renderWorkspaces() {
 }
 ```
 
-- [ ] **Step 5: Sidebar — delete conversation button**
+- [x] **Step 5: Sidebar — delete conversation button**
 
 In `ui/app.js`'s `renderSidebar`, inside the conversation row loop, after the running-dot block:
 
@@ -2567,7 +2567,7 @@ CSS (`ui/style.css`):
 .conv-delete:hover { color: var(--danger); }
 ```
 
-- [ ] **Step 6: First-run provider preference**
+- [x] **Step 6: First-run provider preference**
 
 In `ui/app.js`'s new-conversation handler, replace the provider pick with:
 
@@ -2579,7 +2579,7 @@ In `ui/app.js`'s new-conversation handler, replace the provider pick with:
     state.providers[0];
 ```
 
-- [ ] **Step 7: Settings — Ollama "Fetch models" button**
+- [x] **Step 7: Settings — Ollama "Fetch models" button**
 
 In `ui/settings.js`'s provider row builder, after the action buttons:
 
@@ -2604,7 +2604,7 @@ In `ui/settings.js`'s provider row builder, after the action buttons:
   listLocalModels: (providerId) => invoke("list_local_models", { providerId }),
 ```
 
-- [ ] **Step 8: Events — remove stale approval buttons on error/cancel**
+- [x] **Step 8: Events — remove stale approval buttons on error/cancel**
 
 In `ui/events.js`, in BOTH the `error` and `cancelled` branches (active path), add:
 
@@ -2612,7 +2612,7 @@ In `ui/events.js`, in BOTH the `error` and `cancelled` branches (active path), a
       document.querySelectorAll(".approval-card .approval-buttons").forEach((b) => b.remove());
 ```
 
-- [ ] **Step 9: Verify + commit**
+- [x] **Step 9: Verify + commit**
 
 - `cargo test` → all green (140+); `cargo clippy --all-targets -- -D warnings` clean
 - `node --input-type=module --check` on changed ui files
