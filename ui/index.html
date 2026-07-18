@@ -24,6 +24,22 @@
         <div id="main-split">
           <div id="chat-pane">
             <div id="messages"></div>
+            <div id="center-screen" class="hidden">
+              <div class="center-wrap">
+                <div class="center-project-row">
+                  <span>📁</span>
+                  <select id="center-project"></select>
+                </div>
+                <div class="center-composer">
+                  <textarea id="center-input" rows="4" placeholder="Ask anything, @ to mention, / for actions"></textarea>
+                  <div id="composer-bar">
+                    <span id="center-model" class="dim"></span>
+                    <button id="center-send">Send</button>
+                  </div>
+                </div>
+                <p class="dim center-hint">Pick a project above — or browse for a new one — then just start typing. The conversation is created on your first message.</p>
+              </div>
+            </div>
             <div id="composer" class="hidden">
               <textarea id="input" rows="3" placeholder="Ask anything, @ to mention, / for actions"></textarea>
               <div id="composer-bar">
@@ -66,7 +82,10 @@
             <div id="workspace-list-settings"></div>
             <form id="workspace-form">
               <input id="ws-name" placeholder="Name (e.g. my-project)" required />
-              <input id="ws-path" placeholder="Absolute path (e.g. C:\dev\my-project)" required />
+              <div class="browse-row">
+                <input id="ws-path" placeholder="Project folder — browse or paste a path" readonly required />
+                <button type="button" id="ws-browse">Browse…</button>
+              </div>
               <button type="submit">Add workspace</button>
             </form>
           </section>

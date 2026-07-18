@@ -28,5 +28,6 @@ export const api = {
   setApiKey: (providerId, key) => invoke("set_api_key", { providerId, key }),
   deleteApiKey: (providerId) => invoke("delete_api_key", { providerId }),
   listLocalModels: (providerId) => invoke("list_local_models", { providerId }),
+  pickFolder: () => window.__TAURI__.dialog.open({ directory: true }),
   onAgentEvent: (handler) => listen("agent-event", (e) => handler(e.payload)),
 };

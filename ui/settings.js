@@ -1,5 +1,5 @@
 import { api } from "./api.js";
-import { state, renderSidebar, renderEmptyState, guard } from "./app.js";
+import { state, renderSidebar, renderCenterScreen, guard } from "./app.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -40,6 +40,15 @@ export function initSettings(_state, refreshProviders) {
     e.target.reset();
     await refreshProvidersFn();
     renderSettings();
+  });
+
+  $("ws-browse").onclick = guard(async () => {
+    const path = await api.pickFolder();
+    if (!path) return;
+    $("ws-path").value = path;
+    if (!$("ws-name").value.trim()) {
+      $("ws-name").value = path.split(/[\\/]/).filter(Boolean).pop() || "project";
+    }
   });
 
   $("workspace-form").onsubmit = async (e) => {
@@ -190,12 +199,7 @@ export function renderWorkspaces() {
       state.workspaces = await api.listWorkspaces();
       state.conversations.delete(ws.id);
       if (state.active?.workspace_id === ws.id) {
-        state.active = null;
-        $("chat-title").textContent = "Select or create a conversation";
-        $("chat-ws").textContent = "";
-        $("composer").classList.add("hidden");
-        renderEmptyState();
-        $("stop-agent").classList.add("hidden");
+        renderCenterScreen();
       }
       renderSidebar();
       renderWorkspaces();

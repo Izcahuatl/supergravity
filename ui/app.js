@@ -11,6 +11,7 @@ export const state = {
   active: null, // active ConversationRow
   running: new Set(), // conversation_ids with a live agent
   showAll: new Set(), // workspace_ids with expanded conversation lists
+  lastWorkspaceId: null, // last active workspace (default for new conversations)
   streaming: false,
 };
 
@@ -44,7 +45,7 @@ async function boot() {
       }
     }
   }
-  if (!restored) renderEmptyState();
+  if (!restored) renderCenterScreen();
 }
 
 /// Refetch + re-render the active conversation's history (e.g. after a run
@@ -57,31 +58,73 @@ export async function refreshMessages() {
   renderMessages(msgs);
 }
 
-/// Welcome screen when no conversation is selected.
-export function renderEmptyState() {
-  const el = $("messages");
-  el.innerHTML = "";
-  const div = document.createElement("div");
-  div.className = "empty-state";
-  const title = document.createElement("div");
-  title.className = "empty-title";
-  title.textContent = "supergravity";
-  const sub = document.createElement("div");
-  sub.className = "empty-sub";
-  sub.textContent = "Agent mission control — any model, your rules.";
-  const hints = document.createElement("ul");
-  hints.className = "empty-hints";
-  for (const hint of [
-    "Pick a conversation on the left, or hit + New Conversation",
-    "Set API keys in ⚙ Settings — or run a local model via Ollama",
-    "Manual mode asks before every write or command; Auto just goes",
-  ]) {
-    const li = document.createElement("li");
-    li.textContent = hint;
-    hints.appendChild(li);
+function preferredProvider() {
+  return (
+    state.providers.find((p) => p.has_key && p.models.length > 0) ||
+    state.providers.find((p) => p.kind === "ollama" && p.models.length > 0) ||
+    state.providers.find((p) => p.models.length > 0) ||
+    state.providers[0]
+  );
+}
+
+/// Antigravity-style new-conversation screen: centered composer + project
+/// picker. No conversation exists yet — it's created on the first message.
+export function renderCenterScreen() {
+  state.active = null;
+  $("chat-title").textContent = "New conversation";
+  $("chat-ws").textContent = "";
+  $("composer").classList.add("hidden");
+  $("stop-agent").classList.add("hidden");
+  $("messages").innerHTML = "";
+  $("messages").classList.add("hidden");
+  $("center-screen").classList.remove("hidden");
+  populateCenterProject();
+}
+
+function populateCenterProject() {
+  const sel = $("center-project");
+  sel.innerHTML = "";
+  for (const ws of state.workspaces) {
+    const opt = document.createElement("option");
+    opt.value = ws.id;
+    opt.textContent = ws.name;
+    sel.appendChild(opt);
   }
-  div.append(title, sub, hints);
-  el.appendChild(div);
+  const sep = document.createElement("option");
+  sep.value = "__new__";
+  sep.textContent = "＋ New project (browse)…";
+  sel.appendChild(sep);
+  const last = state.workspaces.find((w) => w.id === state.lastWorkspaceId) ?? state.workspaces[0];
+  if (last) sel.value = last.id;
+  const p = preferredProvider();
+  $("center-model").textContent = p
+    ? `${p.label} · ${p.models[0] ?? "(no model — set one in Settings)"}`
+    : "no provider — open ⚙ Settings";
+}
+
+async function sendFromCenter() {
+  const text = $("center-input").value.trim();
+  if (!text) return;
+  const wsId = $("center-project").value;
+  const ws = state.workspaces.find((w) => w.id === wsId);
+  if (!ws) {
+    alert("Pick a project — or browse for a new one — first.");
+    return;
+  }
+  const provider = preferredProvider();
+  if (!provider || provider.models.length === 0) {
+    alert("Add a provider with a model in Settings first.");
+    return;
+  }
+  const id = await api.createConversation(ws.id, "New Conversation", provider.id, provider.models[0]);
+  state.conversations.set(ws.id, await api.listConversations(ws.id));
+  renderSidebar();
+  const conv = state.conversations.get(ws.id).find((c) => c.id === id);
+  if (!conv) return;
+  $("center-input").value = "";
+  await selectConversation(conv);
+  $("input").value = text;
+  await send();
 }
 
 export async function refreshProviders() {
@@ -140,12 +183,7 @@ export function renderSidebar() {
         await api.deleteConversation(conv.id);
         state.conversations.set(ws.id, await api.listConversations(ws.id));
         if (state.active?.id === conv.id) {
-          state.active = null;
-          $("chat-title").textContent = "Select or create a conversation";
-          $("chat-ws").textContent = "";
-          $("composer").classList.add("hidden");
-          renderEmptyState();
-          $("stop-agent").classList.add("hidden");
+          renderCenterScreen();
         }
         renderSidebar();
       });
@@ -174,6 +212,9 @@ function workspaceName(id) {
 
 export async function selectConversation(conv) {
   state.active = conv;
+  state.lastWorkspaceId = conv.workspace_id;
+  $("center-screen").classList.add("hidden");
+  $("messages").classList.remove("hidden");
   renderSidebar(); // instant feedback, before the fetch
   $("chat-title").textContent = conv.title;
   $("chat-ws").textContent = `📁 ${workspaceName(conv.workspace_id)}`;
@@ -226,31 +267,31 @@ export function renderModelPicker() {
   slot.appendChild(select);
 }
 
-$("new-conversation").onclick = guard(async () => {
-  if (state.workspaces.length === 0) {
-    alert("Add a workspace first (Settings → Add workspace).");
+$("new-conversation").onclick = () => renderCenterScreen();
+
+$("center-send").onclick = guard(sendFromCenter);
+$("center-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    guard(sendFromCenter)();
+  }
+});
+
+$("center-project").onchange = guard(async () => {
+  const sel = $("center-project");
+  if (sel.value !== "__new__") return;
+  const path = await api.pickFolder();
+  if (!path) {
+    populateCenterProject();
     return;
   }
-  const ws = state.workspaces.find((w) => w.id === state.active?.workspace_id) || state.workspaces[0];
-  const provider =
-    state.providers.find((p) => p.has_key && p.models.length > 0) ||
-    state.providers.find((p) => p.kind === "ollama") ||
-    state.providers.find((p) => p.models.length > 0) ||
-    state.providers[0];
-  if (!provider) {
-    alert("Add a provider first (Settings).");
-    return;
-  }
-  const model = provider.models[0] || "";
-  if (!model) {
-    alert(`Provider ${provider.label} has no models — add one in Settings.`);
-    return;
-  }
-  const id = await api.createConversation(ws.id, "New Conversation", provider.id, model);
-  state.conversations.set(ws.id, await api.listConversations(ws.id));
+  const name = path.split(/[\\/]/).filter(Boolean).pop() || "project";
+  const id = await api.addWorkspace(name, path);
+  state.workspaces = await api.listWorkspaces();
+  if (!state.conversations.has(id)) state.conversations.set(id, await api.listConversations(id));
   renderSidebar();
-  const conv = state.conversations.get(ws.id).find((c) => c.id === id);
-  if (conv) await selectConversation(conv);
+  populateCenterProject();
+  sel.value = id;
 });
 
 $("mode-toggle").onclick = guard(async () => {

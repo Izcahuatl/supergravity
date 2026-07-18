@@ -328,3 +328,44 @@ details.think pre {
 .md table { border-collapse: collapse; margin: 8px 0; font-size: 12px; }
 .md th, .md td { border: 1px solid var(--border); padding: 4px 10px; text-align: left; }
 .md th { background: var(--bg-input); }
+
+/* center screen (new conversation) */
+#center-screen {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.center-wrap {
+  width: min(620px, 88%);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.center-project-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+}
+#center-project { min-width: 240px; font-size: 14px; }
+.center-composer {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+}
+.center-composer textarea {
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  resize: vertical;
+  font: inherit;
+}
+.center-hint { text-align: center; font-size: 12px; margin: 0; }
+.browse-row { display: flex; gap: 8px; }
+.browse-row input { flex: 1; }
+#center-send { min-width: 80px; }

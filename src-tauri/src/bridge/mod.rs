@@ -15,6 +15,7 @@ pub fn run() {
     let state = state::AppState::production(store, config_path, ui_config);
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             commands::list_workspaces,
