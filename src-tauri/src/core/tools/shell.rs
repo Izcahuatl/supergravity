@@ -87,22 +87,25 @@ impl Tool for RunShellTool {
                 if !output.status.success() {
                     // Non-zero exit is a tool failure — the model sees an error result.
                     return Err(Error::Tool(format!(
-                        "{}\n[exit code {}]",
-                        truncated,
-                        output.status.code().unwrap_or(-1)
+                        "[run_shell \"{}\" failed — exit code {}]\n{}",
+                        args.command,
+                        output.status.code().unwrap_or(-1),
+                        truncated
                     )));
                 }
+                // Provenance header: tool results must be unmistakably the
+                // agent's own execution, not something the user did.
                 if truncated.is_empty() {
-                    Ok("[no output]".to_string())
+                    Ok(format!("[output of run_shell \"{}\" — exit code 0, no output]", args.command))
                 } else {
-                    Ok(truncated)
+                    Ok(format!("[output of run_shell \"{}\" — exit code 0]\n{}", args.command, truncated))
                 }
             }
             Ok(Err(e)) => Err(e.into()),
             Err(_) => Err(Error::Tool(format!(
-                "command timed out after {}s and was killed: {}",
-                timeout.as_secs(),
-                args.command
+                "[run_shell \"{}\" timed out after {}s and was killed]",
+                args.command,
+                timeout.as_secs()
             ))),
         }
     }

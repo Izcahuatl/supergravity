@@ -350,7 +350,8 @@ pub async fn run(req: AgentRequest) -> AgentOutcome {
     }
 }
 
-fn system_prompt(
+#[doc(hidden)] // exposed for tests/prompt_lab
+pub fn system_prompt(
     workspace_root: &std::path::Path,
     mode: crate::core::types::ApprovalMode,
     tools: &[Box<dyn Tool>],
@@ -368,6 +369,13 @@ fn system_prompt(
         "You are Supergravity, a coding agent.\n\
          Workspace root: {}\n\
          Available tools: {}.\n\
+         How this works: you call tools by name; their results come back to you as tool-role messages. \
+         Those results are outputs of YOUR tool calls, executed by the Supergravity runtime — \
+         the user does not run tools or type commands themselves. \
+         Never describe tool results as something the user did.\n\
+         Example of a correct loop: you call run_shell {{\"command\": \"echo hello\"}}; a tool message returns \
+         \"[output of run_shell \\\"echo hello\\\" — exit code 0]\\nhello\"; you then tell the user: \
+         It printed: hello. The user ran nothing.\n\
          Rules: keep all file access inside the workspace root; read before you modify; \
          prefer small, targeted changes; when a tool returns an error, adapt or explain instead of retrying blindly.\n\
          {}",
