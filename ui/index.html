@@ -19,7 +19,6 @@
         <header id="chat-header">
           <span id="chat-ws" class="dim"></span>
           <span id="chat-title">Select or create a conversation</span>
-          <button id="stop-agent" class="hidden"><svg class="icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/></svg> Stop</button>
         </header>
         <div id="main-split">
           <div id="chat-pane">
@@ -34,7 +33,7 @@
                   <textarea id="center-input" rows="4" placeholder="Ask anything, @ to mention, / for actions"></textarea>
                   <div id="composer-bar">
                     <span id="center-model" class="dim"></span>
-                    <button id="center-send">Send</button>
+                    <button id="center-send" class="icon-btn" title="Send"></button>
                   </div>
                 </div>
                 <p class="dim center-hint">Pick a project above — or browse for a new one — then just start typing. The conversation is created on your first message.</p>
@@ -45,7 +44,7 @@
               <div id="composer-bar">
                 <span id="model-slot"></span>
                 <button id="mode-toggle" title="Approval mode: Manual = approve every write/exec">Manual</button>
-                <button id="send">Send</button>
+                <button id="send" class="icon-btn" title="Send"></button>
               </div>
             </div>
           </div>

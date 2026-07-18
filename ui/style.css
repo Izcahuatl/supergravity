@@ -169,7 +169,6 @@ button:hover, select:hover { border-color: var(--accent); }
 .approval-buttons { display: flex; gap: 8px; margin-top: 6px; }
 .approval-buttons .approve { border-color: var(--ok); }
 .approval-buttons .deny { border-color: var(--danger); }
-#stop-agent { color: var(--danger); }
 
 .provider-row {
   border: 1px solid var(--border);
@@ -217,7 +216,6 @@ details.think pre {
 #chat-header { gap: 10px; justify-content: flex-start; }
 #chat-title { color: var(--text); font-weight: 600; }
 #chat-ws { flex-shrink: 0; }
-#stop-agent { margin-left: auto; }
 
 /* --- Antigravity-style --- */
 
@@ -499,10 +497,22 @@ button:active { transform: scale(0.97); }
 }
 #new-conversation:hover { background: rgba(139, 92, 246, 0.14); }
 
-/* --- stop button --- */
-#stop-agent {
-  animation: pulseDot 1.6s ease-in-out infinite;
+/* --- send/stop icon button --- */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  padding: 0;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.icon-btn.is-stop {
+  color: var(--danger);
   border-color: var(--danger);
+  background: transparent;
 }
 
 /* --- worked steps indent guide --- */
@@ -532,7 +542,6 @@ button:active { transform: scale(0.97); }
 .worked-step .icon-x-circle { color: var(--danger); }
 .worked-step.err .icon { color: var(--danger); }
 #open-settings { display: inline-flex; align-items: center; gap: 6px; }
-#stop-agent { display: inline-flex; align-items: center; gap: 5px; }
 .center-project-row .icon { color: var(--text-dim); }
 
 /* --- center wrap rise + send disabled state --- */

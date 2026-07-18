@@ -1,4 +1,4 @@
-import { state, refreshMessages } from "./app.js";
+import { state, refreshMessages, syncSendStop } from "./app.js";
 import { api } from "./api.js";
 import { addBubble, renderTextPart, renderToolCallCard, prettyArgs } from "./render.js";
 import { icon } from "./icons.js";
@@ -57,7 +57,17 @@ export function handleAgentEvent(payload) {
     case "approval_requested": {
       currentTextBubble = null;
       pendingApprovals.set(conversation_id, { ...event.data });
-      addBubble("assistant").appendChild(buildApprovalCard(conversation_id, event.data));
+      // One card per call: morph the proposed card into its approval state
+      // instead of adding a second card for the same call.
+      const existing = document.querySelector(`[data-call-id="${event.data.tool_call_id}"]`);
+      if (existing) {
+        existing.classList.add("approval-card");
+        const status = existing.querySelector(".tool-status");
+        status.textContent = "";
+        status.appendChild(buildApprovalButtons(conversation_id, event.data));
+      } else {
+        addBubble("assistant").appendChild(buildApprovalCard(conversation_id, event.data));
+      }
       break;
     }
     case "tool_call_finished": {
@@ -77,7 +87,7 @@ export function handleAgentEvent(payload) {
       currentTextBubble = null;
       streamBuffers.delete(conversation_id);
       pendingApprovals.delete(conversation_id);
-      $("stop-agent").classList.add("hidden");
+      syncSendStop();
       // Persisted history lands just after message_done — refresh shortly after
       // so the worked-for line and change cards render from the store.
       setTimeout(() => refreshMessages(), 400);
@@ -89,7 +99,7 @@ export function handleAgentEvent(payload) {
       document.querySelectorAll(".approval-card .approval-buttons").forEach((b) => b.remove());
       const bubble = addBubble("error");
       bubble.textContent = `Error: ${event.data}`;
-      $("stop-agent").classList.add("hidden");
+      syncSendStop();
       break;
     }
     case "cancelled": {
@@ -99,23 +109,13 @@ export function handleAgentEvent(payload) {
       document.querySelectorAll(".approval-card .approval-buttons").forEach((b) => b.remove());
       const bubble = addBubble("error");
       bubble.textContent = "Cancelled.";
-      $("stop-agent").classList.add("hidden");
+      syncSendStop();
       break;
     }
   }
 }
 
-export function buildApprovalCard(conversationId, data) {
-  const card = document.createElement("div");
-  card.className = "approval-card";
-  card.dataset.callId = data.tool_call_id;
-  const head = document.createElement("div");
-  head.className = "tool-head";
-  head.innerHTML = `${icon("alert", 13)}<span></span>`;
-  head.querySelector("span").textContent = `${data.name} needs approval`;
-  const args = document.createElement("pre");
-  args.className = "tool-args";
-  args.textContent = prettyArgs(data.args_json);
+export function buildApprovalButtons(conversationId, data) {
   const buttons = document.createElement("div");
   buttons.className = "approval-buttons";
   const approve = document.createElement("button");
@@ -133,7 +133,21 @@ export function buildApprovalCard(conversationId, data) {
     buttons.remove();
   };
   buttons.append(approve, deny);
-  card.append(head, args, buttons);
+  return buttons;
+}
+
+export function buildApprovalCard(conversationId, data) {
+  const card = document.createElement("div");
+  card.className = "approval-card";
+  card.dataset.callId = data.tool_call_id;
+  const head = document.createElement("div");
+  head.className = "tool-head";
+  head.innerHTML = `${icon("alert", 13)}<span></span>`;
+  head.querySelector("span").textContent = `${data.name} needs approval`;
+  const args = document.createElement("pre");
+  args.className = "tool-args";
+  args.textContent = prettyArgs(data.args_json);
+  card.append(head, args, buildApprovalButtons(conversationId, data));
   return card;
 }
 

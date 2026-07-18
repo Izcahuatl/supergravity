@@ -75,7 +75,6 @@ export function renderCenterScreen() {
   $("chat-title").textContent = "New conversation";
   $("chat-ws").textContent = "";
   $("composer").classList.add("hidden");
-  $("stop-agent").classList.add("hidden");
   $("messages").classList.add("hidden");
   $("messages").style.opacity = "";
   $("center-screen").classList.remove("hidden");
@@ -288,7 +287,7 @@ export async function selectConversation(conv) {
   $("composer").classList.remove("hidden");
   renderModelPicker();
   renderModeToggle(conv.approval_mode);
-  $("stop-agent").classList.toggle("hidden", !state.running.has(conv.id));
+  syncSendStop();
   const msgs = await api.getMessages(conv.id);
   // A newer click may have switched away while the fetch was in flight.
   if (state.active?.id !== conv.id) return;
@@ -412,11 +411,13 @@ api.onAgentEvent((payload) => {
     state.running.delete(cid);
     changed = true;
   }
-  if (changed) renderSidebar();
+  if (changed) {
+    renderSidebar();
+    syncSendStop();
+  }
   handleAgentEvent(payload);
 });
 
-$("send").onclick = send;
 $("input").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
@@ -424,7 +425,7 @@ $("input").addEventListener("keydown", (e) => {
   }
 });
 
-// Textarea autoresize + send-button state sync.
+// Textarea autoresize + send/stop button state sync.
 function bindAutoresize(el, max = 160) {
   const fit = () => {
     el.style.height = "auto";
@@ -436,11 +437,26 @@ function bindAutoresize(el, max = 160) {
 bindAutoresize($("input"));
 bindAutoresize($("center-input"));
 
-const syncSendState = () => {
-  $("send").disabled = !$("input").value.trim();
+/// Send becomes Stop while the active conversation's agent runs.
+export function syncSendStop() {
+  const running = state.active && state.running.has(state.active.id);
+  for (const btn of [$("send"), $("center-send")]) {
+    btn.innerHTML = running ? icon("square", 11) : icon("send", 14);
+    btn.classList.toggle("is-stop", !!running);
+    btn.title = running ? "Stop" : "Send";
+  }
+  $("send").disabled = !running && !$("input").value.trim();
+}
+$("input").addEventListener("input", syncSendStop);
+syncSendStop();
+
+$("send").onclick = () => {
+  if (state.active && state.running.has(state.active.id)) {
+    api.cancelAgent(state.active.id).catch(() => {});
+  } else {
+    send();
+  }
 };
-$("input").addEventListener("input", syncSendState);
-syncSendState();
 
 async function send() {
   const text = $("input").value.trim();
@@ -448,7 +464,6 @@ async function send() {
   const cid = state.active.id;
   if (state.running.has(cid)) return;
   $("input").value = "";
-  syncSendState();
   resetEventState();
   const bubble = document.createElement("div");
   bubble.className = "bubble user";
@@ -456,8 +471,8 @@ async function send() {
   document.getElementById("messages").appendChild(bubble);
   // Mark running NOW (the first event may lag) — closes the double-send window.
   state.running.add(cid);
+  syncSendStop();
   renderSidebar();
-  $("stop-agent").classList.remove("hidden");
   try {
     await api.sendMessage(cid, text);
     // The bridge may have auto-renamed the conversation on first send — refresh.
@@ -471,15 +486,12 @@ async function send() {
     renderSidebar();
   } catch (e) {
     state.running.delete(cid);
+    syncSendStop();
     renderSidebar();
     const err = document.createElement("div");
     err.className = "bubble error";
     err.textContent = `Error: ${e}`;
     document.getElementById("messages").appendChild(err);
-    $("stop-agent").classList.add("hidden");
   }
 }
 
-$("stop-agent").onclick = () => {
-  if (state.active) api.cancelAgent(state.active.id).catch(() => {});
-};
