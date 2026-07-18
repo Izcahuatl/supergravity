@@ -6,6 +6,28 @@ const $ = (id) => document.getElementById(id);
 // Captured at init — renderSettings is top-level but needs to refresh providers.
 let refreshProvidersFn = async () => {};
 
+/// Persist a provider from its row's current DOM state (auto-save).
+/// Does NOT re-render settings (keeps scroll/focus); just refreshes the
+/// composer picker and flashes "saved ✓" on the row.
+async function saveProvider(p, row) {
+  const checks = [...row.querySelectorAll(".models-wrap input[type=checkbox]")];
+  p.base_url = row.querySelector(".p-base").value.trim() || null;
+  p.models = checks.map((c) => c.dataset.model);
+  p.disabled_models = checks.filter((c) => !c.checked).map((c) => c.dataset.model);
+  await api.upsertProvider(p);
+  await refreshProvidersFn();
+  let flash = row.querySelector(".saved-flash");
+  if (!flash) {
+    flash = document.createElement("span");
+    flash.className = "saved-flash";
+    flash.textContent = "saved ✓";
+    row.querySelector(".provider-head").appendChild(flash);
+  }
+  flash.classList.add("show");
+  clearTimeout(flash._t);
+  flash._t = setTimeout(() => flash.classList.remove("show"), 1200);
+}
+
 export function initSettings(_state, refreshProviders) {
   refreshProvidersFn = refreshProviders;
   $("open-settings").onclick = () => {
@@ -14,6 +36,14 @@ export function initSettings(_state, refreshProviders) {
     $("settings").classList.remove("hidden");
   };
   $("close-settings").onclick = () => $("settings").classList.add("hidden");
+
+  for (const btn of document.querySelectorAll(".settings-nav-item")) {
+    btn.onclick = () => {
+      document.querySelectorAll(".settings-nav-item").forEach((b) => b.classList.toggle("active", b === btn));
+      $("section-providers").classList.toggle("hidden", btn.dataset.section !== "providers");
+      $("section-workspaces").classList.toggle("hidden", btn.dataset.section !== "workspaces");
+    };
+  }
 
   $("custom-provider-form").onsubmit = guard(async (e) => {
     e.preventDefault();
@@ -34,6 +64,7 @@ export function initSettings(_state, refreshProviders) {
       base_url: baseUrl,
       has_key: false,
       models,
+      disabled_models: [...models], // new providers start fully off
       extra_headers: [],
     });
     if (key) await api.setApiKey(id, key);
@@ -103,7 +134,9 @@ function renderSettings() {
     const modelsHead = document.createElement("div");
     modelsHead.className = "dim models-head";
     modelsHead.textContent = "Models (checked = shown in picker)";
-    modelsWrap.appendChild(modelsHead);
+    const modelsGrid = document.createElement("div");
+    modelsGrid.className = "models-grid";
+    modelsWrap.append(modelsHead, modelsGrid);
     const disabled = new Set(p.disabled_models ?? []);
     const addModelRow = (name) => {
       const row = document.createElement("label");
@@ -115,7 +148,7 @@ function renderSettings() {
       const txt = document.createElement("span");
       txt.textContent = name;
       row.append(cb, txt);
-      modelsWrap.appendChild(row);
+      modelsGrid.appendChild(row);
       return row;
     };
     for (const m of p.models) addModelRow(m);
@@ -145,7 +178,7 @@ function renderSettings() {
       b.textContent = text;
       return b;
     };
-    actions.append(mkBtn("p-save", "Save"), mkBtn("p-set-key", "Set API key"));
+    actions.append(mkBtn("p-set-key", "Set API key"));
     if (p.has_key) actions.append(mkBtn("p-del-key", "Delete key"));
     actions.append(mkBtn("p-delete", "Delete provider"));
     if (p.kind === "ollama") {
@@ -161,20 +194,19 @@ function renderSettings() {
             addModelRow(m);
           }
         }
+        await saveProvider(p, row);
       });
       actions.appendChild(fetchBtn);
     }
 
-    row.append(head, baseLabel, modelsWrap, actions);
-    row.querySelector(".p-save").onclick = guard(async () => {
-      p.base_url = row.querySelector(".p-base").value.trim() || null;
-      const checks = [...modelsWrap.querySelectorAll("input[type=checkbox]")];
-      p.models = checks.map((c) => c.dataset.model);
-      p.disabled_models = checks.filter((c) => !c.checked).map((c) => c.dataset.model);
-      await api.upsertProvider(p);
-      await refreshProvidersFn();
-      renderSettings();
+    // Auto-save on any change: checkbox toggles and base-URL commits persist
+    // immediately, with a small "saved ✓" flash for feedback.
+    modelsWrap.addEventListener("change", (e) => {
+      if (e.target.matches("input[type=checkbox]")) guard(() => saveProvider(p, row))();
     });
+    baseInput.addEventListener("change", () => guard(() => saveProvider(p, row))());
+
+    row.append(head, baseLabel, modelsWrap, actions);
     row.querySelector(".p-set-key").onclick = () => {
       // WebView2 doesn't support window.prompt — inline password input instead.
       const keyRow = document.createElement("div");

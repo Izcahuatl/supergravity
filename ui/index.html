@@ -58,17 +58,19 @@
         </div>
       </main>
       <div id="settings" class="hidden">
-        <div id="settings-panel">
-          <header>
-            <h2>Settings</h2>
-            <button id="close-settings">✕</button>
-          </header>
-          <section>
+        <nav id="settings-nav">
+          <button id="close-settings">← Back</button>
+          <h2>Settings</h2>
+          <button class="settings-nav-item active" data-section="providers">Providers</button>
+          <button class="settings-nav-item" data-section="workspaces">Workspaces</button>
+        </nav>
+        <div id="settings-content">
+          <section id="section-providers">
             <h3>Providers</h3>
-            <p class="dim">OpenAI, Anthropic, Gemini, and Ollama presets were added automatically on first run — edit them below, or add any OpenAI-compatible endpoint as custom.</p>
+            <p class="dim">Presets were added on first run — edit below, or add any OpenAI-compatible endpoint as custom. Checked models appear in the picker.</p>
             <div id="provider-list"></div>
             <h4>Add custom provider (OpenAI-compatible)</h4>
-            <form id="custom-provider-form">
+            <form id="custom-provider-form" class="settings-form">
               <input id="cp-label" placeholder="Label (e.g. Groq)" required />
               <input id="cp-base-url" placeholder="Base URL (e.g. https://api.groq.com/openai/v1)" required />
               <input id="cp-models" placeholder="Models, comma-separated (e.g. llama-3.3-70b-versatile)" required />
@@ -76,10 +78,11 @@
               <button type="submit">Add custom provider</button>
             </form>
           </section>
-          <section>
-            <h3>Add workspace</h3>
+          <section id="section-workspaces" class="hidden">
+            <h3>Workspaces</h3>
+            <p class="dim">Projects the agent can work in. Removing one deletes its conversations.</p>
             <div id="workspace-list-settings"></div>
-            <form id="workspace-form">
+            <form id="workspace-form" class="settings-form">
               <input id="ws-name" placeholder="Name (e.g. my-project)" required />
               <div class="browse-row">
                 <input id="ws-path" placeholder="Project folder — browse or paste a path" readonly required />
