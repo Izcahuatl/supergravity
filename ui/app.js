@@ -1,6 +1,7 @@
 import { api } from "./api.js";
 import { renderMessages } from "./render.js";
 import { initSettings } from "./settings.js";
+import { handleAgentEvent, resetEventState } from "./events.js";
 
 export const state = {
   workspaces: [],
@@ -158,3 +159,60 @@ $("mode-toggle").onclick = guard(async () => {
 boot().catch((e) => {
   document.getElementById("chat-title").textContent = `Boot failed: ${e}`;
 });
+
+api.onAgentEvent((payload) => {
+  // Running-set bookkeeping (sidebar dots) for ALL conversations, then
+  // delegate rendering to events.js (which no-ops for non-active ones).
+  const k = payload.event.kind;
+  if (["text_delta", "tool_call_proposed", "approval_requested"].includes(k)) {
+    state.running.add(payload.conversation_id);
+  }
+  if (["message_done", "error", "cancelled"].includes(k)) {
+    state.running.delete(payload.conversation_id);
+  }
+  renderSidebar();
+  handleAgentEvent(payload);
+});
+
+$("send").onclick = send;
+$("input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    send();
+  }
+});
+
+async function send() {
+  const text = $("input").value.trim();
+  if (!text || !state.active) return;
+  if (state.running.has(state.active.id)) return;
+  $("input").value = "";
+  resetEventState();
+  const bubble = document.createElement("div");
+  bubble.className = "bubble user";
+  bubble.textContent = text;
+  document.getElementById("messages").appendChild(bubble);
+  $("stop-agent").classList.remove("hidden");
+  try {
+    await api.sendMessage(state.active.id, text);
+    // The bridge may have auto-renamed the conversation on first send — refresh.
+    const convs = await api.listConversations(state.active.workspace_id);
+    state.conversations.set(state.active.workspace_id, convs);
+    const fresh = convs.find((c) => c.id === state.active.id);
+    if (fresh) {
+      state.active = fresh;
+      $("chat-title").textContent = fresh.title;
+    }
+    renderSidebar();
+  } catch (e) {
+    const err = document.createElement("div");
+    err.className = "bubble error";
+    err.textContent = `Error: ${e}`;
+    document.getElementById("messages").appendChild(err);
+    $("stop-agent").classList.add("hidden");
+  }
+}
+
+$("stop-agent").onclick = () => {
+  if (state.active) api.cancelAgent(state.active.id).catch(() => {});
+};

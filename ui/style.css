@@ -135,3 +135,28 @@ button:hover, select:hover { border-color: var(--accent); }
   flex-shrink: 0;
 }
 .dim { color: var(--text-dim); font-size: 12px; }
+
+.bubble { max-width: 80%; margin: 6px 0; padding: 10px 14px; border-radius: 10px; }
+.bubble.user { background: #2b3a5a; margin-left: auto; }
+.bubble.assistant { background: var(--bg-alt); border: 1px solid var(--border); }
+.bubble.error { background: #3a2326; border: 1px solid var(--danger); color: #f0b9b4; }
+.bubble .md p { margin: 6px 0; }
+.bubble pre { background: #121215; padding: 10px; border-radius: 6px; overflow-x: auto; font-size: 12px; }
+.bubble code { font-family: "Cascadia Code", Consolas, monospace; font-size: 12px; }
+.tool-card, .approval-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 6px 0;
+  background: var(--bg-input);
+}
+.approval-card { border-color: var(--warn); }
+.tool-head { font-weight: 600; margin-bottom: 4px; }
+.tool-args, .tool-result { font-size: 11px; color: var(--text-dim); margin: 4px 0; white-space: pre-wrap; }
+.tool-status { font-size: 12px; margin-top: 4px; }
+.tool-status.ok { color: var(--ok); }
+.tool-status.err { color: var(--danger); }
+.approval-buttons { display: flex; gap: 8px; margin-top: 6px; }
+.approval-buttons .approve { border-color: var(--ok); }
+.approval-buttons .deny { border-color: var(--danger); }
+#stop-agent { color: var(--danger); }
