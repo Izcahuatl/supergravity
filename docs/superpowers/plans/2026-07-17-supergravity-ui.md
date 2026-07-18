@@ -925,7 +925,7 @@ Design notes (from quality review — these fix real bugs in the original sketch
 3. **Provider is built BEFORE the user message is appended**, so a config/key failure doesn't leave a dangling user message in history.
 4. **Store calls in the persist loop go through `block()`** (spawn_blocking contract), with `eprintln!` on failure.
 
-- [ ] **Step 1: Write the failing tests — `src-tauri/src/bridge/agent_runner.rs` containing ONLY**
+- [x] **Step 1: Write the failing tests — `src-tauri/src/bridge/agent_runner.rs` containing ONLY**
 
 ```rust
 #[cfg(test)]
@@ -1020,18 +1020,18 @@ mod tests {
         let provider = std::sync::Arc::new(MockProvider::new(vec![]));
         let _parts = AgentTaskParts::new(&state, conv.clone(), provider).await.unwrap();
         let provider2 = std::sync::Arc::new(MockProvider::new(vec![]));
-        let err = AgentTaskParts::new(&state, conv, provider2).await.unwrap_err();
+        let err = AgentTaskParts::new(&state, conv, provider2).await.err().unwrap();
         assert!(err.to_string().contains("already running"), "{err}");
     }
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd /b/Jetbrains/projects/kimislop/src-tauri && cargo test agent_runner`
 Expected: compile errors — `pump_events`, `AgentTaskParts`, `run_agent_task`, `send_message_impl` not found.
 
-- [ ] **Step 3: Implement the agent runner (prepend above the test module)**
+- [x] **Step 3: Implement the agent runner (prepend above the test module)**
 
 ```rust
 use crate::bridge::commands::{block, estr};
@@ -1151,7 +1151,7 @@ impl AgentTaskParts {
 
 /// The spawned task body: pump events, run the loop, persist produced messages
 /// (even on failure — partial runs stay resumable), free the agents-map entry.
-pub async fn run_agent_task(parts: AgentTaskParts, emit: impl Fn(serde_json::Value) + Send) {
+pub async fn run_agent_task(parts: AgentTaskParts, emit: impl Fn(serde_json::Value) + Send + 'static) {
     let guard = AgentGuard { agents: parts.agents.clone(), cid: parts.conversation_id.clone() };
     let pump = tokio::spawn(pump_events(parts.conversation_id.clone(), parts.events_rx, emit));
     let outcome = agent::run(AgentRequest {
@@ -1282,12 +1282,12 @@ pub async fn resolve_approval(
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd /b/Jetbrains/projects/kimislop/src-tauri && cargo test bridge`
 Expected: all bridge tests pass (5 from U2 + 3 new). Full suite green; clippy clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /b/Jetbrains/projects/kimislop
