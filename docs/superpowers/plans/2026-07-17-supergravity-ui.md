@@ -2101,17 +2101,47 @@ function renderSettings() {
   for (const p of state.providers) {
     const row = document.createElement("div");
     row.className = "provider-row";
-    const keyBadge = p.has_key ? `<span class="badge ok">key set</span>` : `<span class="badge warn">no key</span>`;
-    row.innerHTML = `
-      <div class="provider-head"><strong>${p.label}</strong> <span class="dim">${p.kind}</span> ${keyBadge}</div>
-      <label>Base URL <input class="p-base" value="${p.base_url ?? ""}" placeholder="(default)"></label>
-      <label>Models <input class="p-models" value="${p.models.join(", ")}"></label>
-      <div class="provider-actions">
-        <button class="p-save">Save</button>
-        <button class="p-set-key">Set API key</button>
-        ${p.has_key ? '<button class="p-del-key">Delete key</button>' : ""}
-        <button class="p-delete">Delete provider</button>
-      </div>`;
+
+    const head = document.createElement("div");
+    head.className = "provider-head";
+    const strong = document.createElement("strong");
+    strong.textContent = p.label;
+    const kind = document.createElement("span");
+    kind.className = "dim";
+    kind.textContent = p.kind;
+    const badge = document.createElement("span");
+    badge.className = "badge " + (p.has_key ? "ok" : "warn");
+    badge.textContent = p.has_key ? "key set" : "no key";
+    head.append(strong, " ", kind, " ", badge);
+
+    const baseLabel = document.createElement("label");
+    baseLabel.textContent = "Base URL ";
+    const baseInput = document.createElement("input");
+    baseInput.className = "p-base";
+    baseInput.value = p.base_url ?? "";
+    baseInput.placeholder = "(default)";
+    baseLabel.appendChild(baseInput);
+
+    const modelsLabel = document.createElement("label");
+    modelsLabel.textContent = "Models ";
+    const modelsInput = document.createElement("input");
+    modelsInput.className = "p-models";
+    modelsInput.value = p.models.join(", ");
+    modelsLabel.appendChild(modelsInput);
+
+    const actions = document.createElement("div");
+    actions.className = "provider-actions";
+    const mkBtn = (cls, text) => {
+      const b = document.createElement("button");
+      b.className = cls;
+      b.textContent = text;
+      return b;
+    };
+    actions.append(mkBtn("p-save", "Save"), mkBtn("p-set-key", "Set API key"));
+    if (p.has_key) actions.append(mkBtn("p-del-key", "Delete key"));
+    actions.append(mkBtn("p-delete", "Delete provider"));
+
+    row.append(head, baseLabel, modelsLabel, actions);
     row.querySelector(".p-save").onclick = async () => {
       p.base_url = row.querySelector(".p-base").value.trim() || null;
       p.models = row.querySelector(".p-models").value.split(",").map((m) => m.trim()).filter(Boolean);
