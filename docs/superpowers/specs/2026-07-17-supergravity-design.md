@@ -206,7 +206,7 @@ resolves the oneshot. Mode changes take effect on the next tool call.
 ## Storage
 
 SQLite (rusqlite, `bundled` feature) at the platform app-data dir
-(`%APPDATA%/supergravity/supergravity.db` on Windows). Migration table `schema_version`.
+(`%APPDATA%/supergravity/data/supergravity.db` on Windows). Migration table `schema_version`.
 
 Tables:
 
@@ -274,7 +274,7 @@ Commands (invoke): `list_workspaces`, `add_workspace(path)`, `remove_workspace`,
   model** as error tool results so it can recover, and mirrored to the UI as failed tool
   cards.
 - Path-sandbox violations and approval denials are tool errors, not app errors.
-- Request timeout: 120 s per provider HTTP request (configurable per provider later).
+- Request timeouts: 30 s to connect/receive headers, 120 s idle between stream chunks (a long-but-alive LLM stream must not be killed by a total timeout).
 
 ## Testing
 
