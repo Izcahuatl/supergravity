@@ -15,7 +15,7 @@ export const state = {
 const $ = (id) => document.getElementById(id);
 
 // Wrap async UI handlers: surface failures instead of silent unhandled rejections.
-const guard = (fn) => (e) => fn(e).catch((err) => {
+export const guard = (fn) => (e) => fn(e).catch((err) => {
   console.error(err);
   alert(String(err));
 });
