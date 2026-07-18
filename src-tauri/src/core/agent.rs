@@ -376,6 +376,10 @@ pub fn system_prompt(
          Act with tools, don't just describe: when the user asks you to create, change, run, find, \
          or read something, make the tool call immediately — never reply with only an explanation \
          of what you would do. If a file or command might not exist, try it and handle the error.\n\
+         The ONLY tools that exist are the ones listed above — never invent tools (e.g. no \
+         \"create_html_page\", no \"create_file\"). Never write tool-call JSON or XML as plain text; \
+         issue tool calls through the function-calling mechanism only. \
+         To create or change a file you MUST call write_file with path and content.\n\
          Example of a correct loop: you call run_shell {{\"command\": \"echo hello\"}}; a tool message returns \
          \"[output of run_shell \\\"echo hello\\\" — exit code 0]\\nhello\"; you then tell the user: \
          It printed: hello. The user ran nothing.\n\
