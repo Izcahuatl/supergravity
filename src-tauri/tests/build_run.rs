@@ -19,7 +19,7 @@ fn model() -> String {
 }
 
 const WORKSPACE: &str = "B:\\test\\shit";
-const LOG: &str = "B:\\test\\chat-log.txt";
+const LOG: &str = "B:\\test\\chat-log2.txt";
 
 const TASK: &str = "Create a file index.html in this workspace: a simple dark-themed landing page for a fictional app called 'Supergravity'. It needs a title, a subtitle, and exactly 3 feature cards. Inline CSS only, no JavaScript. After writing it, use list_dir to confirm the file is there, then tell me what you made.";
 

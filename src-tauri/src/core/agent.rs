@@ -8,6 +8,36 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+/// Detect a tool call the model wrote as TEXT instead of using the
+/// function-calling channel (a known weak-model failure mode, e.g.
+/// `{"tool": "name", "arguments": {...}}` or qwen's `<tool_call>` XML).
+/// Matches only when the name is a registered tool and args parse as an object.
+#[doc(hidden)] // exposed for unit tests
+pub fn detect_text_tool_call(text: &str, tool_names: &[&str]) -> Option<(String, String)> {
+    for (start, _) in text.match_indices('{') {
+        let mut stream = serde_json::Deserializer::from_str(&text[start..]).into_iter::<serde_json::Value>();
+        let Some(Ok(value)) = stream.next() else {
+            continue;
+        };
+        let name = value.get("tool").or_else(|| value.get("name")).and_then(|n| n.as_str());
+        let Some(name) = name else { continue };
+        if !tool_names.contains(&name) {
+            continue;
+        }
+        let args = value
+            .get("arguments")
+            .or_else(|| value.get("args"))
+            .or_else(|| value.get("parameters"))
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({}));
+        if !args.is_object() {
+            continue;
+        }
+        return Some((name.to_string(), args.to_string()));
+    }
+    None
+}
+
 pub const DEFAULT_MAX_ITERATIONS: usize = 50;
 
 pub struct AgentRequest {
@@ -115,6 +145,17 @@ pub async fn run(req: AgentRequest) -> AgentOutcome {
                 produced,
                 error: Some(e),
             };
+        }
+
+        // Repair: the model wrote its tool call as text instead of using the
+        // function-calling channel — convert it into a real call so the loop
+        // still executes it (weak-model resilience).
+        if calls.is_empty() && !text.is_empty() {
+            let owned: Vec<String> = req.tools.iter().map(|t| t.spec().name).collect();
+            let names: Vec<&str> = owned.iter().map(|s| s.as_str()).collect();
+            if let Some((name, args_json)) = detect_text_tool_call(&text, &names) {
+                calls.push((format!("repair-{}", uuid::Uuid::new_v4()), name, args_json));
+            }
         }
 
         let mut parts: Vec<ContentPart> = Vec::new();
@@ -523,6 +564,104 @@ mod tests {
         );
         assert!(events.contains(&AgentEvent::TextDelta("hi ".into())));
         assert!(events.contains(&AgentEvent::MessageDone));
+    }
+
+    #[test]
+    fn detect_finds_json_tool_call() {
+        let text = "Sure! {\"tool\": \"echo\", \"arguments\": {\"a\": 1}} done.";
+        assert_eq!(
+            detect_text_tool_call(text, &["echo"]),
+            Some(("echo".to_string(), "{\"a\":1}".to_string()))
+        );
+    }
+
+    #[test]
+    fn detect_accepts_name_variant_and_defaults_args() {
+        let text = "<tool_call>\n{\"name\": \"echo\", \"arguments\": {\"x\": true}}\n</tool_call>";
+        assert_eq!(
+            detect_text_tool_call(text, &["echo"]),
+            Some(("echo".to_string(), "{\"x\":true}".to_string()))
+        );
+        let no_args = "{\"tool\": \"echo\"}";
+        assert_eq!(
+            detect_text_tool_call(no_args, &["echo"]),
+            Some(("echo".to_string(), "{}".to_string()))
+        );
+    }
+
+    #[test]
+    fn detect_rejects_unknown_tool_and_non_tool_json() {
+        assert_eq!(detect_text_tool_call("{\"tool\": \"nope\", \"arguments\": {}}", &["echo"]), None);
+        assert_eq!(detect_text_tool_call("{\"name\": \"config.json\", \"version\": 2}", &["echo"]), None);
+        assert_eq!(detect_text_tool_call("no json at all", &["echo"]), None);
+        assert_eq!(detect_text_tool_call("{\"broken", &["echo"]), None);
+    }
+
+    #[tokio::test]
+    async fn repair_executes_text_tool_call_and_continues() {
+        // Model answers with a text-formatted tool call (no native tool_calls),
+        // then a follow-up turn answers in text.
+        let script = vec![
+            vec![
+                Ok(ChatEvent::TextDelta("Let me do that. {\"tool\": \"echo\", \"arguments\": {\"a\": 1}}".into())),
+                Ok(ChatEvent::Done),
+            ],
+            vec![Ok(ChatEvent::TextDelta("done!".into())), Ok(ChatEvent::Done)],
+        ];
+        let (result, events, provider, _) = run_agent(RunArgs {
+            script,
+            mode: ApprovalMode::Auto,
+            tools: vec![Box::new(EchoTool {
+                needs_approval: false,
+            })],
+            max_iterations: 5,
+        })
+        .await;
+        let msgs = result.produced;
+        assert_eq!(msgs.len(), 3, "assistant(call) + tool result + assistant(final): {msgs:?}");
+        // The assistant message carries a repaired ToolCall part.
+        match &msgs[0].parts[1] {
+            ContentPart::ToolCall { id, name, args_json } => {
+                assert!(id.starts_with("repair-"), "{id}");
+                assert_eq!(name, "echo");
+                assert_eq!(args_json, "{\"a\":1}");
+            }
+            other => panic!("expected repaired tool call, got {other:?}"),
+        }
+        assert_eq!(
+            msgs[1].parts,
+            vec![ContentPart::ToolResult {
+                tool_call_id: match &msgs[0].parts[1] {
+                    ContentPart::ToolCall { id, .. } => id.clone(),
+                    _ => unreachable!(),
+                },
+                content: "echoed: {\"a\":1}".into(),
+                is_error: false,
+            }]
+        );
+        // Second provider call happened (loop continued) with the tool result in history.
+        assert_eq!(provider.calls.lock().unwrap().len(), 2);
+        assert!(events.iter().any(|e| matches!(e, AgentEvent::ToolCallProposed { name, .. } if name == "echo")));
+    }
+
+    #[tokio::test]
+    async fn repair_skips_unknown_tool_name() {
+        let script = vec![vec![
+            Ok(ChatEvent::TextDelta("{\"tool\": \"not_a_tool\", \"arguments\": {}}".into())),
+            Ok(ChatEvent::Done),
+        ]];
+        let (result, _, provider, _) = run_agent(RunArgs {
+            script,
+            mode: ApprovalMode::Auto,
+            tools: vec![Box::new(EchoTool {
+                needs_approval: false,
+            })],
+            max_iterations: 5,
+        })
+        .await;
+        assert_eq!(result.produced.len(), 1, "plain text answer, no repair");
+        assert!(result.error.is_none());
+        assert_eq!(provider.calls.lock().unwrap().len(), 1);
     }
 
     #[tokio::test]
