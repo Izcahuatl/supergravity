@@ -44,7 +44,9 @@ pub fn run() {
             let inner = state.inner();
             // Preset seeding needs an async context; block briefly at startup.
             handle.block_on(async {
-                commands::seed_presets_if_empty_impl(inner).await.expect("seed presets");
+                commands::seed_presets_if_empty_impl(inner)
+                    .await
+                    .expect("seed presets");
             });
             Ok(())
         })

@@ -2218,7 +2218,7 @@ git commit -m "feat(ui): settings — providers, api keys, workspaces"
 
 ### Task U7: Final verification
 
-- [ ] **Step 1: Full Rust suite + clippy + fmt**
+- [x] **Step 1: Full Rust suite + clippy + fmt**
 
 ```bash
 cd /b/Jetbrains/projects/kimislop/src-tauri
@@ -2227,7 +2227,7 @@ cargo clippy --all-targets -- -D warnings
 cargo fmt
 ```
 
-- [ ] **Step 2: Production build**
+- [x] **Step 2: Production build**
 
 ```bash
 cargo tauri build --no-bundle
@@ -2235,11 +2235,15 @@ cargo tauri build --no-bundle
 
 Expected: completes; binary at `src-tauri/target/release/supergravity.exe`. (`--no-bundle` skips the MSI/NSIS installer packaging, which needs extra tooling we don't need for v1.)
 
-- [ ] **Step 2b: Revisit CSP**
+- [x] **Step 2b: Revisit CSP**
 
 Set an explicit CSP in `tauri.conf.json` now that the full UI exists (all assets are local files): replace `"csp": null` with `"csp": "default-src 'self'; style-src 'self' 'unsafe-inline'"` and smoke-test the app once (styling must still work — our CSS is a single local file, but confirm no inline style attributes broke). If anything renders wrong, adjust the policy rather than reverting to `null`.
 
+Done stricter: audit found no inline `style=` attributes, no `<style>`/inline `<script>` blocks, no `style.` writes in JS, and no remote resources (fonts/images/scripts), so the policy is just `"default-src 'self'"` — no `'unsafe-inline'` needed. `cargo tauri dev` launched clean for 60s under this policy.
+
 - [ ] **Step 3: Run the release binary smoke checklist**
+
+Machine-verified (U7 automation): release binary launches and stays alive 30s with no errors; `%APPDATA%\supergravity\data\supergravity.db` created with the 4 seeded providers (OpenAI, Anthropic, Gemini, Ollama). Remaining items need a human at the GUI + a real provider key:
 
 - App opens; sidebar shows seeded 4 providers in Settings (OpenAI, Anthropic, Gemini, Ollama)
 - Add a workspace (a real project dir); create a conversation
@@ -2248,7 +2252,7 @@ Set an explicit CSP in `tauri.conf.json` now that the full UI exists (all assets
 - Stop button cancels mid-stream
 - Restart: conversation + messages persist
 
-- [ ] **Step 4: Commit + update docs**
+- [x] **Step 4: Commit + update docs**
 
 ```bash
 cd /b/Jetbrains/projects/kimislop

@@ -1,7 +1,7 @@
 use crate::core::approvals::ApprovalBroker;
-use crate::core::config::{AppConfig, KeyStore, OsKeyStore};
 #[cfg(test)]
 use crate::core::config::MemKeyStore;
+use crate::core::config::{AppConfig, KeyStore, OsKeyStore};
 use crate::core::store::Store;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -29,7 +29,12 @@ impl AppState {
         Self::with_keys(store, Arc::new(OsKeyStore), config_path, ui_config)
     }
 
-    pub fn with_keys(store: Store, keys: Arc<dyn KeyStore>, config_path: PathBuf, ui_config: AppConfig) -> Self {
+    pub fn with_keys(
+        store: Store,
+        keys: Arc<dyn KeyStore>,
+        config_path: PathBuf,
+        ui_config: AppConfig,
+    ) -> Self {
         AppState {
             store: Arc::new(store),
             keys,

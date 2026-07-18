@@ -58,7 +58,11 @@ pub struct AgentTaskParts {
 impl AgentTaskParts {
     /// Reserve the agents-map slot (atomic guard+insert), then load everything
     /// the run needs. On any failure the reservation is released.
-    pub async fn new(state: &AppState, conv: ConversationRow, provider: Arc<dyn Provider>) -> Result<Self> {
+    pub async fn new(
+        state: &AppState,
+        conv: ConversationRow,
+        provider: Arc<dyn Provider>,
+    ) -> Result<Self> {
         let cid = conv.id.clone();
         let (events_tx, events_rx) = mpsc::channel::<AgentEvent>(256);
         let cancel = CancellationToken::new();
@@ -66,9 +70,17 @@ impl AgentTaskParts {
         {
             let mut agents = state.agents.lock().unwrap();
             if agents.contains_key(&cid) {
-                return Err(Error::Tool("an agent is already running in this conversation".into()));
+                return Err(Error::Tool(
+                    "an agent is already running in this conversation".into(),
+                ));
             }
-            agents.insert(cid.clone(), RunningAgent { cancel: cancel.clone(), broker: broker.clone() });
+            agents.insert(
+                cid.clone(),
+                RunningAgent {
+                    cancel: cancel.clone(),
+                    broker: broker.clone(),
+                },
+            );
         }
         let result = Self::load(state, &conv, provider, broker, cancel, events_tx, events_rx).await;
         if result.is_err() {
@@ -115,9 +127,19 @@ impl AgentTaskParts {
 
 /// The spawned task body: pump events, run the loop, persist produced messages
 /// (even on failure — partial runs stay resumable), free the agents-map entry.
-pub async fn run_agent_task(parts: AgentTaskParts, emit: impl Fn(serde_json::Value) + Send + 'static) {
-    let guard = AgentGuard { agents: parts.agents.clone(), cid: parts.conversation_id.clone() };
-    let pump = tokio::spawn(pump_events(parts.conversation_id.clone(), parts.events_rx, emit));
+pub async fn run_agent_task(
+    parts: AgentTaskParts,
+    emit: impl Fn(serde_json::Value) + Send + 'static,
+) {
+    let guard = AgentGuard {
+        agents: parts.agents.clone(),
+        cid: parts.conversation_id.clone(),
+    };
+    let pump = tokio::spawn(pump_events(
+        parts.conversation_id.clone(),
+        parts.events_rx,
+        emit,
+    ));
     let outcome = agent::run(AgentRequest {
         workspace_root: parts.workspace_root,
         provider: parts.provider,
@@ -185,7 +207,13 @@ pub async fn send_message_impl(
     }
     // Auto-title placeholder conversations from the first message.
     if conv.title == "New Conversation" || conv.title.trim().is_empty() {
-        let title: String = text.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(40).collect();
+        let title: String = text
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .chars()
+            .take(40)
+            .collect();
         let s = state.store.clone();
         let c = conversation_id.clone();
         block(move || s.rename_conversation(&c, &title)).await?;
@@ -211,7 +239,12 @@ pub async fn cancel_agent_impl(state: &AppState, conversation_id: String) -> Res
     }
 }
 
-pub async fn resolve_approval_impl(state: &AppState, conversation_id: String, request_id: String, allow: bool) -> Result<()> {
+pub async fn resolve_approval_impl(
+    state: &AppState,
+    conversation_id: String,
+    request_id: String,
+    allow: bool,
+) -> Result<()> {
     match state.agents.lock().unwrap().get(&conversation_id) {
         Some(agent) => agent.broker.resolve(&request_id, allow),
         None => Err(Error::Tool("no agent running in this conversation".into())),
@@ -227,12 +260,19 @@ pub async fn send_message(
     conversation_id: String,
     text: String,
 ) -> std::result::Result<(), String> {
-    send_message_impl(app, &state, conversation_id, text).await.map_err(estr)
+    send_message_impl(app, &state, conversation_id, text)
+        .await
+        .map_err(estr)
 }
 
 #[tauri::command]
-pub async fn cancel_agent(state: tauri::State<'_, AppState>, conversation_id: String) -> std::result::Result<(), String> {
-    cancel_agent_impl(&state, conversation_id).await.map_err(estr)
+pub async fn cancel_agent(
+    state: tauri::State<'_, AppState>,
+    conversation_id: String,
+) -> std::result::Result<(), String> {
+    cancel_agent_impl(&state, conversation_id)
+        .await
+        .map_err(estr)
 }
 
 #[tauri::command]
@@ -242,7 +282,9 @@ pub async fn resolve_approval(
     request_id: String,
     allow: bool,
 ) -> std::result::Result<(), String> {
-    resolve_approval_impl(&state, conversation_id, request_id, allow).await.map_err(estr)
+    resolve_approval_impl(&state, conversation_id, request_id, allow)
+        .await
+        .map_err(estr)
 }
 
 #[cfg(test)]
@@ -274,7 +316,10 @@ mod tests {
             second,
             serde_json::json!({"conversation_id": "conv-1", "event": {"kind": "message_done"}})
         );
-        assert!(out_rx.try_recv().is_err(), "channel closes after senders drop");
+        assert!(
+            out_rx.try_recv().is_err(),
+            "channel closes after senders drop"
+        );
     }
 
     /// Full lifecycle: scripted run persists produced messages, emits events,
@@ -283,12 +328,24 @@ mod tests {
     async fn agent_task_lifecycle_completes_and_cleans_up() {
         let state = AppState::test();
         let dir = tempfile::tempdir().unwrap();
-        let ws = state.store.add_workspace("proj", &dir.path().to_string_lossy()).unwrap();
+        let ws = state
+            .store
+            .add_workspace("proj", &dir.path().to_string_lossy())
+            .unwrap();
         let cid = state
             .store
-            .create_conversation(&ws, "c", "mock", "m", crate::core::types::ApprovalMode::Auto)
+            .create_conversation(
+                &ws,
+                "c",
+                "mock",
+                "m",
+                crate::core::types::ApprovalMode::Auto,
+            )
             .unwrap();
-        state.store.append_message(&cid, &Message::text(Role::User, "go")).unwrap();
+        state
+            .store
+            .append_message(&cid, &Message::text(Role::User, "go"))
+            .unwrap();
 
         let provider = std::sync::Arc::new(MockProvider::new(vec![vec![
             Ok(ChatEvent::TextDelta("hello".into())),
@@ -306,14 +363,20 @@ mod tests {
         });
 
         // Must COMPLETE (the original pump-order bug deadlocked here forever).
-        tokio::time::timeout(std::time::Duration::from_secs(10), run_agent_task(parts, move |v| {
-            let _ = out_tx.try_send(v);
-        }))
+        tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            run_agent_task(parts, move |v| {
+                let _ = out_tx.try_send(v);
+            }),
+        )
         .await
         .expect("agent task must not deadlock");
 
         // Map entry freed.
-        assert!(state.agents.lock().unwrap().is_empty(), "agents map must be empty after run");
+        assert!(
+            state.agents.lock().unwrap().is_empty(),
+            "agents map must be empty after run"
+        );
         // Produced assistant message persisted.
         let msgs = state.store.get_messages(&cid).unwrap();
         assert_eq!(msgs.len(), 2, "user + assistant");
@@ -328,18 +391,32 @@ mod tests {
     async fn reservation_guard_rejects_duplicate() {
         let state = AppState::test();
         let dir = tempfile::tempdir().unwrap();
-        let ws = state.store.add_workspace("proj", &dir.path().to_string_lossy()).unwrap();
+        let ws = state
+            .store
+            .add_workspace("proj", &dir.path().to_string_lossy())
+            .unwrap();
         let cid = state
             .store
-            .create_conversation(&ws, "c", "mock", "m", crate::core::types::ApprovalMode::Auto)
+            .create_conversation(
+                &ws,
+                "c",
+                "mock",
+                "m",
+                crate::core::types::ApprovalMode::Auto,
+            )
             .unwrap();
         let conv = state.store.get_conversation(&cid).unwrap();
         let provider = std::sync::Arc::new(MockProvider::new(vec![]));
-        let _parts = AgentTaskParts::new(&state, conv.clone(), provider).await.unwrap();
+        let _parts = AgentTaskParts::new(&state, conv.clone(), provider)
+            .await
+            .unwrap();
         let provider2 = std::sync::Arc::new(MockProvider::new(vec![]));
         // `.err().unwrap()` instead of `.unwrap_err()`: the latter needs
         // `AgentTaskParts: Debug`, which it cannot derive (`Arc<dyn Provider>`).
-        let err = AgentTaskParts::new(&state, conv, provider2).await.err().unwrap();
+        let err = AgentTaskParts::new(&state, conv, provider2)
+            .await
+            .err()
+            .unwrap();
         assert!(err.to_string().contains("already running"), "{err}");
     }
 }
