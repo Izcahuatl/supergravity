@@ -5,13 +5,12 @@
 //!
 //! Run: cargo test --test prompt_lab -- --ignored --nocapture
 
-use futures::StreamExt;
 use supergravity::core::agent::{self, AgentRequest, DEFAULT_MAX_ITERATIONS};
 use supergravity::core::approvals::ApprovalBroker;
 use supergravity::core::providers::ollama::{self, OllamaProvider};
 use supergravity::core::providers::Provider;
-use supergravity::core::tools::{default_tools, Tool};
-use supergravity::core::types::{AgentEvent, ApprovalMode, ChatEvent, ContentPart, Message, Role};
+use supergravity::core::tools::default_tools;
+use supergravity::core::types::{AgentEvent, ApprovalMode, Message, Role};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
