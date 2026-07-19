@@ -782,6 +782,20 @@ button:active { transform: scale(0.97); }
 .plan-step.in_progress { color: var(--text); }
 .plan-step.in_progress .icon { color: var(--accent); }
 
+/* --- slash commands --- */
+.slash-name { font-weight: 600; margin-right: 10px; }
+.slash-desc { font-size: 12px; }
+
+/* --- per-file revert in the Review panel --- */
+.revert-btn { font-size: 11px; padding: 2px 8px; }
+.revert-btn:disabled { opacity: 0.6; pointer-events: none; }
+
+/* --- syntax highlighting --- */
+.tok-k { color: #c792ea; }
+.tok-s { color: #a5d6a7; }
+.tok-c { color: #6a737d; font-style: italic; }
+.tok-n { color: #f78c6c; }
+
 /* --- approval diff preview --- */
 .diff-toggle {
   font-size: 12px;

@@ -60,7 +60,7 @@ export async function refreshMessages() {
   const conv = state.active;
   const msgs = await api.getMessages(conv.id);
   if (state.active?.id !== conv.id) return;
-  renderMessages(msgs);
+  renderMessages(msgs, conv.id);
 }
 
 function firstEnabledModel(p) {
@@ -428,7 +428,7 @@ export async function selectConversation(conv) {
   // Fade the pane swap instead of a hard cut.
   msgEl.style.transition = "none";
   msgEl.style.opacity = "0";
-  renderMessages(msgs);
+  renderMessages(msgs, conv.id);
   requestAnimationFrame(() => {
     msgEl.style.transition = "opacity 0.18s ease";
     msgEl.style.opacity = "1";
@@ -484,6 +484,112 @@ export function renderModelPicker() {
 // handlers so an open popup can intercept Enter/Tab/Escape first.
 attachMentions($("input"), () => state.active?.workspace_id);
 attachMentions($("center-input"), () => state.centerWorkspaceId);
+
+// --- slash commands: "/auto /manual /model /new" at the start of the input ---
+const SLASH_COMMANDS = [
+  {
+    name: "auto",
+    desc: "Approvals: Auto — no per-write prompts",
+    run: async () => {
+      if (!state.active) return;
+      await api.setApprovalMode(state.active.id, "auto");
+      state.active.approval_mode = "auto";
+      renderModeToggle("auto");
+    },
+  },
+  {
+    name: "manual",
+    desc: "Approvals: Manual — approve every write",
+    run: async () => {
+      if (!state.active) return;
+      await api.setApprovalMode(state.active.id, "manual");
+      state.active.approval_mode = "manual";
+      renderModeToggle("manual");
+    },
+  },
+  {
+    name: "model",
+    desc: "Open the model picker",
+    run: async () => {
+      document.querySelector("#model-slot .dropdown-trigger")?.click();
+    },
+  },
+  { name: "new", desc: "Start a new conversation", run: async () => renderCenterScreen() },
+];
+
+function attachSlash(textarea) {
+  const popup = document.createElement("div");
+  popup.className = "mention-popup hidden"; // same look as the @ popup
+  document.body.appendChild(popup);
+  let matches = [];
+  let activeIdx = 0;
+
+  const close = () => {
+    popup.classList.add("hidden");
+    matches = [];
+  };
+  const render = () => {
+    popup.innerHTML = "";
+    matches.forEach((c, i) => {
+      const it = document.createElement("button");
+      it.type = "button";
+      it.className = "dropdown-item" + (i === activeIdx ? " current" : "");
+      it.innerHTML = `<span class="slash-name"></span><span class="dim slash-desc"></span>`;
+      it.querySelector(".slash-name").textContent = `/${c.name}`;
+      it.querySelector(".slash-desc").textContent = c.desc;
+      it.onmousedown = (e) => {
+        e.preventDefault();
+        guard(exec)(i);
+      };
+      popup.appendChild(it);
+    });
+  };
+  const exec = async (i) => {
+    const cmd = matches[i];
+    if (!cmd) return;
+    close();
+    textarea.value = "";
+    textarea.dispatchEvent(new Event("input"));
+    await cmd.run();
+  };
+  textarea.addEventListener("input", () => {
+    const upto = textarea.value.slice(0, textarea.selectionStart);
+    const m = upto.match(/^\/(\w*)$/);
+    if (!m) return close();
+    matches = SLASH_COMMANDS.filter((c) => c.name.startsWith(m[1].toLowerCase()));
+    if (!matches.length) return close();
+    activeIdx = 0;
+    const r = textarea.getBoundingClientRect();
+    popup.style.left = `${r.left}px`;
+    popup.style.width = `${Math.min(420, r.width)}px`;
+    popup.style.bottom = `${window.innerHeight - r.top + 6}px`;
+    render();
+    popup.classList.remove("hidden");
+  });
+  textarea.addEventListener("keydown", (e) => {
+    if (popup.classList.contains("hidden")) return;
+    if (e.key === "ArrowDown" || (e.key === "Tab" && !e.shiftKey)) {
+      e.preventDefault();
+      activeIdx = Math.min(activeIdx + 1, matches.length - 1);
+      render();
+    } else if (e.key === "ArrowUp" || (e.key === "Tab" && e.shiftKey)) {
+      e.preventDefault();
+      activeIdx = Math.max(activeIdx - 1, 0);
+      render();
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      guard(exec)(activeIdx);
+    } else if (e.key === "Escape") {
+      e.stopImmediatePropagation();
+      close();
+    }
+  });
+  document.addEventListener("click", (e) => {
+    if (!popup.contains(e.target) && e.target !== textarea) close();
+  });
+}
+attachSlash($("input"));
 
 $("new-conversation").onclick = () => renderCenterScreen();
 

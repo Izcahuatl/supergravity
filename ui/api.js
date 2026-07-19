@@ -21,6 +21,8 @@ export const api = {
     invoke("search_workspace_files", { workspaceId, query }),
   previewToolDiff: (conversationId, name, argsJson) =>
     invoke("preview_tool_diff", { conversationId, name, argsJson }),
+  revertFile: (conversationId, path, afterMessageId) =>
+    invoke("revert_file", { conversationId, path, afterMessageId }),
   sendMessage: (conversationId, text) => invoke("send_message", { conversationId, text }),
   cancelAgent: (conversationId) => invoke("cancel_agent", { conversationId }),
   resolveApproval: (conversationId, requestId, allow) =>

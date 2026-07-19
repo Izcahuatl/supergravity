@@ -46,6 +46,7 @@ pub fn run() {
             commands::rewind_conversation,
             commands::search_workspace_files,
             commands::preview_tool_diff,
+            commands::revert_file,
             commands::set_approval_mode,
             commands::update_conversation_model,
             commands::list_providers,

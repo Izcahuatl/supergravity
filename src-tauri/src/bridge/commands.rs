@@ -162,6 +162,44 @@ pub async fn search_workspace_files_impl(
     .await
 }
 
+/// Per-file revert: restore one file to its checkpoint from the given turn,
+/// consuming that file's backups for the turn. Error when no checkpoint exists.
+pub async fn revert_file_impl(
+    state: &AppState,
+    conversation_id: String,
+    path: String,
+    after_message_id: i64,
+) -> Result<()> {
+    let s = state.store.clone();
+    block(move || {
+        let conv = s.get_conversation(&conversation_id)?;
+        let ws = s.get_workspace(&conv.workspace_id)?;
+        let root = std::path::PathBuf::from(&ws.path);
+        let backup = s.file_backup_for(&conversation_id, &path, after_message_id)?;
+        let Some(content) = backup else {
+            return Err(Error::Tool(format!(
+                "no checkpoint for {path} at this turn (already reverted or never changed)"
+            )));
+        };
+        let abs = crate::core::tools::resolve_in_workspace(&root, &path)?;
+        match content {
+            Some(bytes) => {
+                if let Some(parent) = abs.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::write(&abs, bytes)?;
+            }
+            None => {
+                if abs.exists() {
+                    std::fs::remove_file(&abs)?;
+                }
+            }
+        }
+        s.delete_file_backups_for(&conversation_id, &path, after_message_id)
+    })
+    .await
+}
+
 /// Simulated result of a mutating tool call, for the approval card's diff
 /// preview. Never touches disk. Returns None for non-mutating tools or args
 /// that don't parse; tool-level errors (missing file, old_string not found)
@@ -174,8 +212,7 @@ pub struct ToolDiffPreview {
     pub new_: String,
 }
 
-pub async fn preview_tool_diff_impl(
-    state: &AppState,
+pub async fn preview_tool_diff_impl(    state: &AppState,
     conversation_id: String,
     name: String,
     args_json: String,
@@ -566,6 +603,18 @@ pub async fn preview_tool_diff(
     args_json: String,
 ) -> std::result::Result<Option<ToolDiffPreview>, String> {
     preview_tool_diff_impl(&state, conversation_id, name, args_json)
+        .await
+        .map_err(estr)
+}
+
+#[tauri::command]
+pub async fn revert_file(
+    state: tauri::State<'_, AppState>,
+    conversation_id: String,
+    path: String,
+    after_message_id: i64,
+) -> std::result::Result<(), String> {
+    revert_file_impl(&state, conversation_id, path, after_message_id)
         .await
         .map_err(estr)
 }

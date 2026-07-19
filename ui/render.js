@@ -223,7 +223,7 @@ function renderWorkedFor(run, calls) {
   return wrap;
 }
 
-function renderChangeCard(calls) {
+function renderChangeCard(calls, convId, userMsgId) {
   const changes = [];
   // Track per-file previous content within the run so overwrite diffs are real.
   const lastContent = new Map();
@@ -238,6 +238,11 @@ function renderChangeCard(calls) {
     }
   }
   if (!changes.length) return null;
+  // Checkpoint coordinates, so the Review panel can revert a single file.
+  for (const ch of changes) {
+    ch.convId = convId;
+    ch.afterMessageId = userMsgId;
+  }
   const added = changes.reduce((s, c) => s + c.added, 0);
   const removed = changes.reduce((s, c) => s + Math.max(c.removed, 0), 0);
   const card = document.createElement("div");
@@ -256,7 +261,7 @@ function renderChangeCard(calls) {
 
 /// Antigravity-style history: user bubble → worked-for (collapsible steps) →
 /// assistant md bubble → change card.
-export function renderMessages(msgs) {
+export function renderMessages(msgs, convId) {
   const el = $("messages");
   el.innerHTML = "";
   for (const run of groupRuns(msgs)) {
@@ -282,7 +287,7 @@ export function renderMessages(msgs) {
       }
       if (!bubble.hasChildNodes()) bubble.remove();
     }
-    const card = renderChangeCard(calls);
+    const card = renderChangeCard(calls, convId, run.user.id);
     if (card) el.appendChild(card);
   }
   scrollToBottom();

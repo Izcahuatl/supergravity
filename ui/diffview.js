@@ -1,4 +1,5 @@
 import { icon } from "./icons.js";
+import { api } from "./api.js";
 
 // Review Changes panel: line-based diff rendering for edit_file/write_file changes.
 
@@ -88,6 +89,26 @@ export function openReview(changes) {
     minus.textContent = ch.removed >= 0 ? ` -${ch.removed}` : " rewritten";
     stats.append(plus, minus);
     head.append(name, stats);
+    // Per-file revert: restore this file's pre-turn checkpoint.
+    if (ch.convId != null && ch.afterMessageId != null) {
+      const btn = document.createElement("button");
+      btn.className = "revert-btn";
+      btn.textContent = "Revert";
+      btn.title = "Restore this file to its state before this turn";
+      btn.onclick = async () => {
+        if (!confirm(`Restore "${ch.path}" to its state before this turn?\nCurrent content will be overwritten.`)) return;
+        btn.disabled = true;
+        try {
+          await api.revertFile(ch.convId, ch.path, ch.afterMessageId);
+          btn.textContent = "Reverted ✓";
+        } catch (e) {
+          btn.disabled = false;
+          btn.textContent = "Failed";
+          btn.title = String(e);
+        }
+      };
+      head.appendChild(btn);
+    }
 
     card.append(head, renderDiffRows(ch.rows));
     body.appendChild(card);

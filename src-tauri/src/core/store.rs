@@ -475,6 +475,38 @@ impl Store {
         Ok(())
     }
 
+    /// The oldest checkpoint for one file at one turn (its pre-turn state).
+    pub fn file_backup_for(
+        &self,
+        conversation_id: &str,
+        path: &str,
+        after_message_id: i64,
+    ) -> Result<Option<Option<Vec<u8>>>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT content FROM file_backups WHERE conversation_id = ?1 AND path = ?2 AND after_message_id = ?3 ORDER BY id ASC LIMIT 1",
+        )?;
+        let mut rows = stmt.query(params![conversation_id, path, after_message_id])?;
+        Ok(match rows.next()? {
+            Some(row) => Some(row.get::<_, Option<Vec<u8>>>(0)?),
+            None => None,
+        })
+    }
+
+    /// Consume one file's checkpoints at one turn (after a per-file revert).
+    pub fn delete_file_backups_for(
+        &self,
+        conversation_id: &str,
+        path: &str,
+        after_message_id: i64,
+    ) -> Result<()> {
+        self.conn.lock().unwrap().execute(
+            "DELETE FROM file_backups WHERE conversation_id = ?1 AND path = ?2 AND after_message_id = ?3",
+            params![conversation_id, path, after_message_id],
+        )?;
+        Ok(())
+    }
+
     pub fn upsert_provider(&self, cfg: &ProviderConfig) -> Result<()> {
         self.conn.lock().unwrap().execute(
             "INSERT INTO providers(id, label, kind, base_url, has_key, models_json, extra_headers_json, disabled_models_json)
@@ -662,6 +694,26 @@ mod tests {
         // Cascades away with the conversation.
         s.delete_conversation(&cid).unwrap();
         assert_eq!(s.file_backups_from(&cid, 0).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn per_file_backup_lookup_and_consume() {
+        let s = store();
+        let ws = s.add_workspace("proj", "/tmp/proj").unwrap();
+        let cid = s
+            .create_conversation(&ws, "c", "openai", "m", ApprovalMode::Auto)
+            .unwrap();
+        s.add_file_backup(&cid, 3, "a.txt", Some(b"orig")).unwrap();
+        s.add_file_backup(&cid, 3, "a.txt", Some(b"mid")).unwrap();
+        s.add_file_backup(&cid, 3, "b.txt", None).unwrap();
+        // The lookup returns the OLDEST (pre-turn) content.
+        let b = s.file_backup_for(&cid, "a.txt", 3).unwrap().unwrap();
+        assert_eq!(b.as_deref(), Some(b"orig".as_slice()));
+        assert!(s.file_backup_for(&cid, "c.txt", 3).unwrap().is_none());
+        // Consuming affects only that file.
+        s.delete_file_backups_for(&cid, "a.txt", 3).unwrap();
+        assert!(s.file_backup_for(&cid, "a.txt", 3).unwrap().is_none());
+        assert!(s.file_backup_for(&cid, "b.txt", 3).unwrap().is_some());
     }
 
     #[test]
