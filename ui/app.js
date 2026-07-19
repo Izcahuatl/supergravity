@@ -14,6 +14,7 @@ export const state = {
   running: new Set(), // conversation_ids with a live agent
   showAll: new Set(), // workspace_ids with expanded conversation lists
   lastWorkspaceId: null, // last active workspace (default for new conversations)
+  centerWorkspaceId: null, // workspace picked in the center-screen project dropdown
   streaming: false,
 };
 
@@ -92,21 +93,50 @@ export function renderCenterScreen() {
   populateCenterProject();
 }
 
+let centerDropdown = null;
+
 function populateCenterProject() {
-  const sel = $("center-project");
-  sel.innerHTML = "";
-  for (const ws of state.workspaces) {
-    const opt = document.createElement("option");
-    opt.value = ws.id;
-    opt.textContent = ws.name;
-    sel.appendChild(opt);
-  }
-  const sep = document.createElement("option");
-  sep.value = "__new__";
-  sep.textContent = "＋ New project (browse)…";
-  sel.appendChild(sep);
+  const slot = $("center-project-slot");
+  slot.innerHTML = "";
   const last = state.workspaces.find((w) => w.id === state.lastWorkspaceId) ?? state.workspaces[0];
-  if (last) sel.value = last.id;
+  if (last) state.centerWorkspaceId = last.id;
+  centerDropdown = makeDropdown({
+    value: last ? last.name : "No projects",
+    valueIcon: "folder",
+    groups: [
+      {
+        label: "Projects",
+        options: [
+          ...state.workspaces.map((ws) => ({
+            value: ws.id,
+            label: ws.name,
+            icon: "folder",
+            current: ws.id === state.centerWorkspaceId,
+          })),
+          { value: "__new__", label: "New project (browse)…", icon: "plus", dim: true },
+        ],
+      },
+    ],
+    onSelect: guard(async (v) => {
+      if (v === "__new__") {
+        const path = await api.pickFolder();
+        if (!path) return;
+        const name = path.split(/[\\/]/).filter(Boolean).pop() || "project";
+        const id = await api.addWorkspace(name, path);
+        state.workspaces = await api.listWorkspaces();
+        if (!state.conversations.has(id)) state.conversations.set(id, await api.listConversations(id));
+        state.lastWorkspaceId = id;
+        renderSidebar();
+        populateCenterProject();
+        return;
+      }
+      state.centerWorkspaceId = v;
+      const ws = state.workspaces.find((w) => w.id === v);
+      if (ws) centerDropdown.setValue(ws.name, "folder");
+    }),
+  });
+  slot.appendChild(centerDropdown.el);
+  centerDropdown.el.classList.add("down"); // popup opens downward here (mid-screen)
   const p = preferredProvider();
   $("center-model").textContent = p
     ? `${p.label} · ${firstEnabledModel(p)}`
@@ -170,8 +200,7 @@ async function transitionCenterToComposer() {
 async function sendFromCenter() {
   const text = $("center-input").value.trim();
   if (!text) return;
-  const wsId = $("center-project").value;
-  const ws = state.workspaces.find((w) => w.id === wsId);
+  const ws = state.workspaces.find((w) => w.id === state.centerWorkspaceId);
   if (!ws) {
     alert("Pick a project — or browse for a new one — first.");
     return;
@@ -259,6 +288,17 @@ export function renderSidebar() {
       el.appendChild(del);
       el.onclick = guard(() => selectConversation(conv));
       wsEl.appendChild(el);
+    }
+    if (convs.length === 0) {
+      const add = document.createElement("div");
+      add.className = "conversation conv-new dim";
+      add.innerHTML = `${icon("plus", 12)}<span class="conv-title">New</span>`;
+      add.title = "Start a conversation in this project";
+      add.onclick = () => {
+        state.lastWorkspaceId = ws.id;
+        renderCenterScreen();
+      };
+      wsEl.appendChild(add);
     }
     if (convs.length > CONV_CAP) {
       const more = document.createElement("div");
@@ -359,23 +399,6 @@ $("center-input").addEventListener("keydown", (e) => {
     e.preventDefault();
     guard(sendFromCenter)();
   }
-});
-
-$("center-project").onchange = guard(async () => {
-  const sel = $("center-project");
-  if (sel.value !== "__new__") return;
-  const path = await api.pickFolder();
-  if (!path) {
-    populateCenterProject();
-    return;
-  }
-  const name = path.split(/[\\/]/).filter(Boolean).pop() || "project";
-  const id = await api.addWorkspace(name, path);
-  state.workspaces = await api.listWorkspaces();
-  if (!state.conversations.has(id)) state.conversations.set(id, await api.listConversations(id));
-  renderSidebar();
-  populateCenterProject();
-  sel.value = id;
 });
 
 $("mode-toggle").onclick = guard(async () => {
