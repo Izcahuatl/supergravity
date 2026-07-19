@@ -16,6 +16,26 @@ let currentTextBubble = null;
 let currentPlanCard = null;
 
 // --- unfocused-window notifications ---
+function convTitle(cid) {
+  for (const rows of state.conversations.values()) {
+    const found = rows.find((c) => c.id === cid);
+    if (found) return found.title;
+  }
+  return "";
+}
+
+async function toast(title, body) {
+  if (document.hasFocus()) return;
+  try {
+    const n = window.__TAURI__.notification;
+    let granted = await n.isPermissionGranted();
+    if (!granted) {
+      granted = (await n.requestPermission()) === "granted";
+    }
+    if (granted) n.sendNotification({ title, body });
+  } catch { /* notification plugin unavailable */ }
+}
+
 function notifyUser(critical = false) {
   if (document.hasFocus()) return;
   try {
@@ -76,12 +96,14 @@ function appendToolCard(card) {
 export function handleAgentEvent(payload) {
   const { conversation_id, event } = payload;
 
-  // Notify when the window is unfocused: flash on completion, flash+beep when
-  // an approval is waiting on the user.
+  // Notify when the window is unfocused: toast + flash on completion,
+  // toast + flash + beep when an approval is waiting on the user.
   if (event.kind === "approval_requested") {
+    toast("Agent needs your approval", convTitle(conversation_id));
     notifyUser(true);
     beep();
   } else if (event.kind === "message_done") {
+    toast("Agent finished", convTitle(conversation_id));
     notifyUser(false);
   }
 

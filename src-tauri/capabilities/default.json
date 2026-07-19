@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Default permissions for supergravity",
   "windows": ["main"],
-  "permissions": ["core:default", "core:event:default", "dialog:default"]
+  "permissions": ["core:default", "core:event:default", "dialog:default", "notification:default"]
 }
