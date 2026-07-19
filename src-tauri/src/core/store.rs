@@ -180,6 +180,21 @@ impl Store {
             conn.execute("UPDATE providers SET disabled_models_json = models_json", [])?;
             conn.execute_batch("PRAGMA user_version = 2;")?;
         }
+        if version < 3 {
+            // File checkpoints: pre-change snapshots so Rewind can restore the
+            // workspace. content NULL = the file did not exist before the change.
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS file_backups(
+                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+                   after_message_id INTEGER NOT NULL,
+                   path TEXT NOT NULL,
+                   content BLOB,
+                   created_at INTEGER NOT NULL
+                 );
+                 PRAGMA user_version = 3;",
+            )?;
+        }
         Ok(())
     }
 
@@ -408,6 +423,58 @@ impl Store {
         Ok(())
     }
 
+    /// Checkpoint: snapshot a file's current bytes before the agent mutates it
+    /// (`None` = file did not exist). `after_message_id` ties the backup to the
+    /// user turn whose run made the change.
+    pub fn add_file_backup(
+        &self,
+        conversation_id: &str,
+        after_message_id: i64,
+        path: &str,
+        content: Option<&[u8]>,
+    ) -> Result<()> {
+        self.conn.lock().unwrap().execute(
+            "INSERT INTO file_backups(conversation_id, after_message_id, path, content, created_at) VALUES(?1, ?2, ?3, ?4, ?5)",
+            params![conversation_id, after_message_id, path, content, now_ts()],
+        )?;
+        Ok(())
+    }
+
+    /// Id of the most recent message (0 when the conversation is empty).
+    pub fn last_message_id(&self, conversation_id: &str) -> Result<i64> {
+        let conn = self.conn.lock().unwrap();
+        Ok(conn.query_row(
+            "SELECT COALESCE(MAX(id), 0) FROM messages WHERE conversation_id = ?1",
+            params![conversation_id],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// Backups made at or after `message_id`, newest first (restore order).
+    pub fn file_backups_from(
+        &self,
+        conversation_id: &str,
+        message_id: i64,
+    ) -> Result<Vec<(String, Option<Vec<u8>>)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT path, content FROM file_backups WHERE conversation_id = ?1 AND after_message_id >= ?2 ORDER BY id DESC",
+        )?;
+        let rows = stmt.query_map(params![conversation_id, message_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, Option<Vec<u8>>>(1)?))
+        })?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
+    /// Consume backups once a rewind has restored them.
+    pub fn delete_file_backups_from(&self, conversation_id: &str, message_id: i64) -> Result<()> {
+        self.conn.lock().unwrap().execute(
+            "DELETE FROM file_backups WHERE conversation_id = ?1 AND after_message_id >= ?2",
+            params![conversation_id, message_id],
+        )?;
+        Ok(())
+    }
+
     pub fn upsert_provider(&self, cfg: &ProviderConfig) -> Result<()> {
         self.conn.lock().unwrap().execute(
             "INSERT INTO providers(id, label, kind, base_url, has_key, models_json, extra_headers_json, disabled_models_json)
@@ -493,7 +560,7 @@ mod tests {
             .unwrap()
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 2);
+        assert_eq!(v, 3);
     }
 
     #[test]
@@ -573,8 +640,32 @@ mod tests {
     }
 
     #[test]
-    fn rewind_deletes_from_message_onward() {
+    fn file_backups_roundtrip_and_cascade() {
         let s = store();
+        let ws = s.add_workspace("proj", "/tmp/proj").unwrap();
+        let cid = s
+            .create_conversation(&ws, "c", "openai", "m", ApprovalMode::Auto)
+            .unwrap();
+        s.add_file_backup(&cid, 5, "a.txt", Some(b"v1")).unwrap();
+        s.add_file_backup(&cid, 5, "a.txt", Some(b"v2")).unwrap();
+        s.add_file_backup(&cid, 6, "new.txt", None).unwrap();
+        // Newest first (restore order).
+        let all = s.file_backups_from(&cid, 5).unwrap();
+        assert_eq!(all.len(), 3);
+        assert_eq!(all[0].0, "new.txt");
+        assert_eq!(all[0].1, None);
+        assert_eq!(all[2].1.as_deref(), Some(b"v1".as_slice()));
+        // Boundary respected.
+        assert_eq!(s.file_backups_from(&cid, 6).unwrap().len(), 1);
+        s.delete_file_backups_from(&cid, 6).unwrap();
+        assert_eq!(s.file_backups_from(&cid, 5).unwrap().len(), 2);
+        // Cascades away with the conversation.
+        s.delete_conversation(&cid).unwrap();
+        assert_eq!(s.file_backups_from(&cid, 0).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn rewind_deletes_from_message_onward() {        let s = store();
         let ws = s.add_workspace("proj", "/tmp/proj").unwrap();
         let cid = s
             .create_conversation(&ws, "c", "openai", "m", ApprovalMode::Auto)

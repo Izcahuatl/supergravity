@@ -51,6 +51,40 @@ pub struct AgentRequest {
     pub events: mpsc::Sender<AgentEvent>,
     pub cancel: CancellationToken,
     pub max_iterations: usize,
+    /// Checkpoint sink for Rewind; None disables file backups.
+    pub backup: Option<BackupCtx>,
+}
+
+/// Checkpoint sink: snapshots a file's bytes before a mutating tool changes
+/// it, so a later Rewind restores the workspace alongside the history.
+/// Best-effort — backup failures never abort a run.
+pub struct BackupCtx {
+    pub store: Arc<crate::core::store::Store>,
+    pub conversation_id: String,
+    /// The user message whose run these backups belong to.
+    pub after_message_id: i64,
+}
+
+impl BackupCtx {
+    fn record(&self, workspace_root: &std::path::Path, args_json: &str) {
+        let path = serde_json::from_str::<serde_json::Value>(args_json)
+            .ok()
+            .and_then(|v| v.get("path")?.as_str().map(str::to_string));
+        let Some(path) = path else { return };
+        let Ok(abs) = crate::core::tools::resolve_in_workspace(workspace_root, &path) else {
+            return;
+        };
+        // None when the file does not exist yet (restore = delete it).
+        let content = std::fs::read(&abs).ok();
+        if let Err(e) = self.store.add_file_backup(
+            &self.conversation_id,
+            self.after_message_id,
+            &path,
+            content.as_deref(),
+        ) {
+            eprintln!("supergravity: file backup failed for {path}: {e}");
+        }
+    }
 }
 
 /// Result of one agent run: the messages produced (persist these even on
@@ -298,6 +332,12 @@ pub async fn run(req: AgentRequest) -> AgentOutcome {
                             }
                         }
                     }
+                    // Checkpoint the target before a mutating tool runs (Rewind).
+                    if let Some(b) = &req.backup {
+                        if matches!(name.as_str(), "write_file" | "edit_file") {
+                            b.record(&req.workspace_root, &args_json);
+                        }
+                    }
                     // Execute with cancellation — a hung tool (up to 300s shell
                     // timeout) must not ignore Stop.
                     let exec_result = tokio::select! {
@@ -504,6 +544,7 @@ mod tests {
         mode: ApprovalMode,
         tools: Vec<Box<dyn Tool>>,
         max_iterations: usize,
+        backup: Option<BackupCtx>,
     }
 
     async fn run_agent(
@@ -528,6 +569,7 @@ mod tests {
             events: events_tx,
             cancel: tokio_util::sync::CancellationToken::new(),
             max_iterations: args.max_iterations,
+            backup: args.backup,
         };
         let handle = tokio::spawn(run(req));
         let mut events = vec![];
@@ -545,6 +587,64 @@ mod tests {
         (result, events, provider, broker)
     }
 
+    /// A mutating tool call snapshots the target file into the checkpoint
+    /// store before execution (Rewind support).
+    #[tokio::test]
+    async fn write_file_records_checkpoint_backup() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.txt"), "original").unwrap();
+        let store = std::sync::Arc::new(crate::core::store::Store::open_in_memory().unwrap());
+        let ws = store
+            .add_workspace("p", &dir.path().to_string_lossy())
+            .unwrap();
+        let cid = store
+            .create_conversation(&ws, "c", "mock", "m", ApprovalMode::Auto)
+            .unwrap();
+        let provider = std::sync::Arc::new(MockProvider::new(vec![
+            vec![
+                Ok(ChatEvent::ToolCall {
+                    id: "c1".into(),
+                    name: "write_file".into(),
+                    args_json: r#"{"path":"a.txt","content":"changed"}"#.into(),
+                }),
+                Ok(ChatEvent::Done),
+            ],
+            vec![Ok(ChatEvent::TextDelta("ok".into())), Ok(ChatEvent::Done)],
+        ]));
+        let (events_tx, mut events_rx) = mpsc::channel(64);
+        let broker = std::sync::Arc::new(ApprovalBroker::new(ApprovalMode::Auto, events_tx.clone()));
+        let req = AgentRequest {
+            workspace_root: dir.path().to_path_buf(),
+            provider: provider.clone(),
+            model: "m".into(),
+            history: vec![Message::text(Role::User, "go")],
+            tools: crate::core::tools::default_tools(),
+            approvals: broker,
+            events: events_tx,
+            cancel: tokio_util::sync::CancellationToken::new(),
+            max_iterations: 5,
+            backup: Some(BackupCtx {
+                store: store.clone(),
+                conversation_id: cid.clone(),
+                after_message_id: 7,
+            }),
+        };
+        let handle = tokio::spawn(run(req));
+        while events_rx.recv().await.is_some() {}
+        let outcome = handle.await.unwrap();
+        assert!(outcome.error.is_none(), "{:?}", outcome.error);
+
+        let backups = store.file_backups_from(&cid, 7).unwrap();
+        assert_eq!(backups.len(), 1);
+        assert_eq!(backups[0].0, "a.txt");
+        assert_eq!(backups[0].1.as_deref(), Some(b"original".as_slice()));
+        // The write itself still happened.
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("a.txt")).unwrap(),
+            "changed"
+        );
+    }
+
     #[tokio::test]
     async fn text_only_turn() {
         let script = vec![vec![
@@ -557,6 +657,7 @@ mod tests {
             mode: ApprovalMode::Auto,
             tools: vec![],
             max_iterations: 5,
+            backup: None,
         })
         .await;
         let msgs = result.produced;
@@ -621,6 +722,7 @@ mod tests {
                 needs_approval: false,
             })],
             max_iterations: 5,
+            backup: None,
         })
         .await;
         let msgs = result.produced;
@@ -663,6 +765,7 @@ mod tests {
                 needs_approval: false,
             })],
             max_iterations: 5,
+            backup: None,
         })
         .await;
         assert_eq!(result.produced.len(), 1, "plain text answer, no repair");
@@ -681,6 +784,7 @@ mod tests {
             mode: ApprovalMode::Auto,
             tools: vec![],
             max_iterations: 5,
+            backup: None,
         })
         .await;
         assert!(result.error.is_none());
@@ -730,6 +834,7 @@ mod tests {
                 needs_approval: false,
             })],
             max_iterations: 5,
+            backup: None,
         })
         .await;
         let msgs = result.produced;
@@ -791,6 +896,7 @@ mod tests {
             events: events_tx,
             cancel: tokio_util::sync::CancellationToken::new(),
             max_iterations: 5,
+            backup: None,
         };
         let handle = tokio::spawn(run(req));
         // deny the approval request when it arrives
@@ -832,6 +938,7 @@ mod tests {
             mode: ApprovalMode::Auto,
             tools: vec![],
             max_iterations: 5,
+            backup: None,
         })
         .await;
         let msgs = result.produced;
@@ -867,6 +974,7 @@ mod tests {
                 needs_approval: false,
             })],
             max_iterations: 2,
+            backup: None,
         })
         .await;
         assert!(result.error.is_some());
@@ -884,6 +992,7 @@ mod tests {
             mode: ApprovalMode::Auto,
             tools: vec![],
             max_iterations: 5,
+            backup: None,
         })
         .await;
         assert!(result.error.is_some());
@@ -913,6 +1022,7 @@ mod tests {
             events: events_tx,
             cancel,
             max_iterations: 5,
+            backup: None,
         };
         let result = run(req).await;
         assert!(matches!(
@@ -956,6 +1066,7 @@ mod tests {
                 needs_approval: false,
             })],
             max_iterations: 5,
+            backup: None,
         })
         .await;
         let msgs = result.produced;
@@ -1007,6 +1118,7 @@ mod tests {
             events: events_tx,
             cancel: tokio_util::sync::CancellationToken::new(),
             max_iterations: 5,
+            backup: None,
         };
         let handle = tokio::spawn(run(req));
         while let Some(ev) = events_rx.recv().await {
@@ -1054,6 +1166,7 @@ mod tests {
             events: events_tx,
             cancel: cancel.clone(),
             max_iterations: 5,
+            backup: None,
         };
         let handle = tokio::spawn(run(req));
         // when the approval request arrives, cancel instead of resolving
@@ -1096,6 +1209,7 @@ mod tests {
             events: events_tx,
             cancel: cancel.clone(),
             max_iterations: 5,
+            backup: None,
         };
         let handle = tokio::spawn(run(req));
         // Cancel ~100ms in, while the 30s SleepTool is mid-execute.
@@ -1158,6 +1272,7 @@ mod tests {
             events: events_tx,
             cancel: cancel.clone(),
             max_iterations: 5,
+            backup: None,
         };
         let handle = tokio::spawn(run(req));
         // Cancel ~100ms in: c1 has echoed, c2 (sleep) is mid-execute.

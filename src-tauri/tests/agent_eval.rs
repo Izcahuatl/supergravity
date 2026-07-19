@@ -76,6 +76,7 @@ async fn eval_scenario(
         events: events_tx,
         cancel: CancellationToken::new(),
         max_iterations: DEFAULT_MAX_ITERATIONS,
+        backup: None,
     };
     let handle = tokio::spawn(agent::run(req));
     let mut tool_calls = vec![];

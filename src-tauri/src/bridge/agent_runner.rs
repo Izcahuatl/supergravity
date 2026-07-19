@@ -53,6 +53,8 @@ pub struct AgentTaskParts {
     pub events_tx: mpsc::Sender<AgentEvent>,
     pub events_rx: mpsc::Receiver<AgentEvent>,
     pub conversation_id: String,
+    /// Id of the user message that triggered this run (checkpoint boundary).
+    pub after_message_id: i64,
 }
 
 impl AgentTaskParts {
@@ -109,6 +111,11 @@ impl AgentTaskParts {
             let c = conv.id.clone();
             block(move || s.get_messages(&c)).await?
         };
+        let after_message_id = {
+            let s = state.store.clone();
+            let c = conv.id.clone();
+            block(move || s.last_message_id(&c)).await?
+        };
         Ok(AgentTaskParts {
             agents: state.agents.clone(),
             store: state.store.clone(),
@@ -121,6 +128,7 @@ impl AgentTaskParts {
             events_tx,
             events_rx,
             conversation_id: conv.id.clone(),
+            after_message_id,
         })
     }
 }
@@ -150,6 +158,11 @@ pub async fn run_agent_task(
         events: parts.events_tx,
         cancel: parts.cancel,
         max_iterations: DEFAULT_MAX_ITERATIONS,
+        backup: Some(agent::BackupCtx {
+            store: parts.store.clone(),
+            conversation_id: parts.conversation_id.clone(),
+            after_message_id: parts.after_message_id,
+        }),
     })
     .await;
     {

@@ -109,7 +109,33 @@ pub async fn rewind_conversation_impl(
         agent.cancel.cancel();
     }
     let s = state.store.clone();
-    block(move || s.rewind_messages(&conversation_id, message_id)).await
+    block(move || {
+        // Restore checkpointed files first (newest change last-write-wins, so
+        // iterate newest→oldest and let the oldest original land last).
+        let conv = s.get_conversation(&conversation_id)?;
+        let ws = s.get_workspace(&conv.workspace_id)?;
+        let root = std::path::PathBuf::from(&ws.path);
+        for (path, content) in s.file_backups_from(&conversation_id, message_id)? {
+            let abs = crate::core::tools::resolve_in_workspace(&root, &path)?;
+            match content {
+                Some(bytes) => {
+                    if let Some(parent) = abs.parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    std::fs::write(&abs, bytes)?;
+                }
+                // The file did not exist before this turn — remove it.
+                None => {
+                    if abs.exists() {
+                        std::fs::remove_file(&abs)?;
+                    }
+                }
+            }
+        }
+        s.delete_file_backups_from(&conversation_id, message_id)?;
+        s.rewind_messages(&conversation_id, message_id)
+    })
+    .await
 }
 
 pub async fn set_approval_mode_impl(
@@ -508,6 +534,70 @@ mod tests {
             .await
             .unwrap()
             .is_empty());
+    }
+
+    #[tokio::test]
+    async fn rewind_restores_files_and_history() {
+        let state = AppState::test();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("keep.txt"), "v1").unwrap();
+        let ws = state
+            .store
+            .add_workspace("proj", &dir.path().to_string_lossy())
+            .unwrap();
+        let cid = state
+            .store
+            .create_conversation(&ws, "c", "mock", "m", ApprovalMode::Auto)
+            .unwrap();
+        state
+            .store
+            .append_message(&cid, &Message::text(Role::User, "turn1"))
+            .unwrap();
+        let m1 = state.store.last_message_id(&cid).unwrap();
+        state
+            .store
+            .append_message(&cid, &Message::text(Role::Assistant, "a1"))
+            .unwrap();
+        // Turn-1 run: keep.txt overwritten, made.txt created (backups recorded).
+        state
+            .store
+            .add_file_backup(&cid, m1, "keep.txt", Some(b"v1"))
+            .unwrap();
+        state.store.add_file_backup(&cid, m1, "made.txt", None).unwrap();
+        std::fs::write(dir.path().join("keep.txt"), "v2").unwrap();
+        std::fs::write(dir.path().join("made.txt"), "new").unwrap();
+        state
+            .store
+            .append_message(&cid, &Message::text(Role::User, "turn2"))
+            .unwrap();
+        let m2 = state.store.last_message_id(&cid).unwrap();
+        state
+            .store
+            .append_message(&cid, &Message::text(Role::Assistant, "a2"))
+            .unwrap();
+
+        // Rewind to turn2: nothing to restore, history trimmed to 2 messages.
+        rewind_conversation_impl(&state, cid.clone(), m2)
+            .await
+            .unwrap();
+        assert_eq!(state.store.get_message_rows(&cid).unwrap().len(), 2);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("keep.txt")).unwrap(),
+            "v2"
+        );
+
+        // Rewind to turn1: keep.txt → v1, made.txt removed, history empty,
+        // backups consumed.
+        rewind_conversation_impl(&state, cid.clone(), m1)
+            .await
+            .unwrap();
+        assert_eq!(state.store.get_message_rows(&cid).unwrap().len(), 0);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("keep.txt")).unwrap(),
+            "v1"
+        );
+        assert!(!dir.path().join("made.txt").exists());
+        assert!(state.store.file_backups_from(&cid, 0).unwrap().is_empty());
     }
 
     #[tokio::test]

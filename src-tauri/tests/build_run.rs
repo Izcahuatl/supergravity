@@ -94,6 +94,7 @@ async fn build_something() {
         events: events_tx,
         cancel: CancellationToken::new(),
         max_iterations: DEFAULT_MAX_ITERATIONS,
+        backup: None,
     };
     let handle = tokio::spawn(agent::run(req));
     while let Some(ev) = events_rx.recv().await {
