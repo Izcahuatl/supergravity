@@ -12,6 +12,7 @@ export const state = {
   conversations: new Map(), // workspaceId -> ConversationRow[]
   active: null, // active ConversationRow
   running: new Set(), // conversation_ids with a live agent
+  runStarted: new Map(), // conversation_id -> Date.now() when the run began
   showAll: new Set(), // workspace_ids with expanded conversation lists
   lastWorkspaceId: null, // last active workspace (default for new conversations)
   centerWorkspaceId: null, // workspace picked in the center-screen project dropdown
@@ -240,6 +241,19 @@ function relTime(ts) {
 
 const CONV_CAP = 5;
 
+function elapsed(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  if (s < 60) return `${s}s`;
+  return `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`;
+}
+
+// Tick the live run timers in place — no full sidebar re-render per second.
+setInterval(() => {
+  for (const t of document.querySelectorAll(".conv-time[data-runstart]")) {
+    t.textContent = elapsed(Date.now() - Number(t.dataset.runstart));
+  }
+}, 1000);
+
 export function renderSidebar() {
   const list = $("workspace-list");
   list.innerHTML = "";
@@ -264,13 +278,15 @@ export function renderSidebar() {
       el.appendChild(title);
       const time = document.createElement("span");
       time.className = "conv-time dim";
-      time.textContent = relTime(conv.updated_at);
-      el.appendChild(time);
       if (state.running.has(conv.id)) {
-        const dot = document.createElement("span");
-        dot.className = "running-dot";
-        el.appendChild(dot);
+        // Running rows show a live elapsed timer instead of the rel-time.
+        const start = state.runStarted.get(conv.id) ?? Date.now();
+        time.dataset.runstart = start;
+        time.textContent = elapsed(Date.now() - start);
+      } else {
+        time.textContent = relTime(conv.updated_at);
       }
+      el.appendChild(time);
       const del = document.createElement("button");
       del.className = "conv-delete";
       del.textContent = "✕";
@@ -438,10 +454,12 @@ api.onAgentEvent((payload) => {
   let changed = false;
   if (["text_delta", "tool_call_proposed", "approval_requested"].includes(k) && !state.running.has(cid)) {
     state.running.add(cid);
+    if (!state.runStarted.has(cid)) state.runStarted.set(cid, Date.now());
     changed = true;
   }
   if (["message_done", "error", "cancelled"].includes(k) && state.running.has(cid)) {
     state.running.delete(cid);
+    state.runStarted.delete(cid);
     changed = true;
   }
   if (changed) {
@@ -506,6 +524,7 @@ async function send() {
   document.getElementById("messages").appendChild(bubble);
   // Mark running NOW (the first event may lag) — closes the double-send window.
   state.running.add(cid);
+  state.runStarted.set(cid, Date.now());
   syncSendStop();
   renderSidebar();
   try {
@@ -521,6 +540,7 @@ async function send() {
     renderSidebar();
   } catch (e) {
     state.running.delete(cid);
+    state.runStarted.delete(cid);
     syncSendStop();
     renderSidebar();
     const err = document.createElement("div");

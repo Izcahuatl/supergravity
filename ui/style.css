@@ -161,13 +161,6 @@ button:hover, select:hover { border-color: var(--accent); }
 }
 .conversation:hover { background: var(--bg-input); }
 .conversation.active { background: var(--bg-input); outline: 1px solid var(--accent); }
-.running-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--ok);
-  flex-shrink: 0;
-}
 .conv-delete {
   visibility: hidden;
   padding: 0 4px;
@@ -420,10 +413,6 @@ details.think pre {
   from { opacity: 0; transform: translateX(24px); }
   to { opacity: 1; transform: translateX(0); }
 }
-@keyframes pulseDot {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.45; transform: scale(0.8); }
-}
 @keyframes caretBlink {
   0%, 49% { opacity: 1; }
   50%, 100% { opacity: 0; }
@@ -468,9 +457,6 @@ button:active { transform: scale(0.97); }
   animation: caretBlink 1s steps(1) infinite;
   margin-left: 1px;
 }
-
-/* --- running dot pulse --- */
-.running-dot { animation: pulseDot 1.4s ease-in-out infinite; }
 
 /* --- approval card attention --- */
 .approval-card { animation: fadeSlideIn 0.22s ease-out, approvalGlow 2.4s ease-in-out infinite; }
