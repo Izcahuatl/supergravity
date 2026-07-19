@@ -343,7 +343,7 @@ export async function selectConversation(conv) {
   msgEl.classList.remove("hidden");
   renderSidebar(); // instant feedback, before the fetch
   $("chat-title").textContent = conv.title;
-  $("chat-ws").innerHTML = `${icon("folder", 13)}<span></span>`;
+  $("chat-ws").innerHTML = `${icon("folder", 13)}<span></span><span class="dim">/</span>`;
   $("chat-ws").querySelector("span").textContent = workspaceName(conv.workspace_id);
   $("composer").classList.remove("hidden");
   renderModelPicker();
