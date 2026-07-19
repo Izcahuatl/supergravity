@@ -497,6 +497,12 @@ details.think pre {
 #settings-panel { animation: popIn 0.16s ease-out; }
 .provider-row { animation: fadeSlideIn 0.18s ease-out; }
 
+/* --- settings provider picker + key row --- */
+.sp-picker-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.sp-picker-row .dropdown-trigger { min-width: 240px; }
+.key-row { display: flex; gap: 8px; margin: 10px 0; max-width: 420px; }
+.key-row input { flex: 1; min-width: 0; }
+
 /* --- interactive transitions --- */
 button, select, .conversation {
   transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease, transform 0.06s ease;

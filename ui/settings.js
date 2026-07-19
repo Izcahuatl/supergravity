@@ -1,10 +1,12 @@
 import { api } from "./api.js";
 import { state, renderSidebar, renderCenterScreen, guard } from "./app.js";
+import { makeDropdown } from "./dropdown.js";
 
 const $ = (id) => document.getElementById(id);
 
 // Captured at init — renderSettings is top-level but needs to refresh providers.
 let refreshProvidersFn = async () => {};
+let selectedProviderId = null;
 
 /// Persist a provider from its row's current DOM state (auto-save).
 /// Does NOT re-render settings (keeps scroll/focus); just refreshes the
@@ -70,6 +72,8 @@ export function initSettings(_state, refreshProviders) {
     if (key) await api.setApiKey(id, key);
     e.target.reset();
     await refreshProvidersFn();
+    // Open the freshly added provider straight away.
+    selectedProviderId = id;
     renderSettings();
   });
 
@@ -102,151 +106,190 @@ export function initSettings(_state, refreshProviders) {
 }
 
 function renderSettings() {
-  const list = $("provider-list");
-  list.innerHTML = "";
-  for (const p of state.providers) {
-    const row = document.createElement("div");
-    row.className = "provider-row";
-
-    const head = document.createElement("div");
-    head.className = "provider-head";
-    const strong = document.createElement("strong");
-    strong.textContent = p.label;
-    const kind = document.createElement("span");
-    kind.className = "dim";
-    kind.textContent = p.kind;
-    const badge = document.createElement("span");
-    badge.className = "badge " + (p.has_key ? "ok" : "warn");
-    badge.textContent = p.has_key ? "key set" : "no key";
-    head.append(strong, " ", kind, " ", badge);
-
-    const baseLabel = document.createElement("label");
-    baseLabel.textContent = "Base URL ";
-    const baseInput = document.createElement("input");
-    baseInput.className = "p-base";
-    baseInput.value = p.base_url ?? "";
-    baseInput.placeholder = "(default)";
-    baseLabel.appendChild(baseInput);
-
-    // Models editor: checkbox per model (checked = enabled in the picker).
-    const modelsWrap = document.createElement("div");
-    modelsWrap.className = "models-wrap";
-    const modelsHead = document.createElement("div");
-    modelsHead.className = "dim models-head";
-    modelsHead.textContent = "Models (checked = shown in picker)";
-    const modelsGrid = document.createElement("div");
-    modelsGrid.className = "models-grid";
-    modelsWrap.append(modelsHead, modelsGrid);
-    const disabled = new Set(p.disabled_models ?? []);
-    const addModelRow = (name) => {
-      const row = document.createElement("label");
-      row.className = "model-check";
-      const cb = document.createElement("input");
-      cb.type = "checkbox";
-      cb.checked = !disabled.has(name);
-      cb.dataset.model = name;
-      const txt = document.createElement("span");
-      txt.textContent = name;
-      row.append(cb, txt);
-      modelsGrid.appendChild(row);
-      return row;
-    };
-    for (const m of p.models) addModelRow(m);
-    // Add-model inline form
-    const addRow = document.createElement("div");
-    addRow.className = "model-add";
-    const addInput = document.createElement("input");
-    addInput.placeholder = "add model…";
-    const addBtn = document.createElement("button");
-    addBtn.type = "button";
-    addBtn.textContent = "Add";
-    addBtn.onclick = () => {
-      const name = addInput.value.trim();
-      if (!name) return;
-      if ([...modelsWrap.querySelectorAll("input[type=checkbox]")].some((c) => c.dataset.model === name)) return;
-      addModelRow(name);
-      addInput.value = "";
-    };
-    addRow.append(addInput, addBtn);
-    modelsWrap.appendChild(addRow);
-
-    const actions = document.createElement("div");
-    actions.className = "provider-actions";
-    const mkBtn = (cls, text) => {
-      const b = document.createElement("button");
-      b.className = cls;
-      b.textContent = text;
-      return b;
-    };
-    actions.append(mkBtn("p-set-key", "Set API key"));
-    if (p.has_key) actions.append(mkBtn("p-del-key", "Delete key"));
-    actions.append(mkBtn("p-delete", "Delete provider"));
-    if (p.kind === "ollama") {
-      const fetchBtn = mkBtn("p-fetch", "Fetch models");
-      fetchBtn.onclick = guard(async () => {
-        const models = await api.listLocalModels(p.id);
-        if (models.length === 0) {
-          alert("No models on the Ollama server — pull one first (ollama pull …).");
-          return;
-        }
-        for (const m of models) {
-          if (![...modelsWrap.querySelectorAll("input[type=checkbox]")].some((c) => c.dataset.model === m)) {
-            addModelRow(m);
-          }
-        }
-        await saveProvider(p, row);
-      });
-      actions.appendChild(fetchBtn);
-    }
-
-    // Auto-save on any change: checkbox toggles and base-URL commits persist
-    // immediately, with a small "saved ✓" flash for feedback.
-    modelsWrap.addEventListener("change", (e) => {
-      if (e.target.matches("input[type=checkbox]")) guard(() => saveProvider(p, row))();
-    });
-    baseInput.addEventListener("change", () => guard(() => saveProvider(p, row))());
-
-    row.append(head, baseLabel, modelsWrap, actions);
-    row.querySelector(".p-set-key").onclick = () => {
-      // WebView2 doesn't support window.prompt — inline password input instead.
-      const keyRow = document.createElement("div");
-      keyRow.className = "provider-actions";
-      const input = document.createElement("input");
-      input.type = "password";
-      input.placeholder = `API key for ${p.label}`;
-      const save = document.createElement("button");
-      save.textContent = "Save key";
-      const cancelBtn = document.createElement("button");
-      cancelBtn.textContent = "Cancel";
-      keyRow.append(input, save, cancelBtn);
-      actions.replaceWith(keyRow);
-      input.focus();
-      save.onclick = guard(async () => {
-        const key = input.value.trim();
-        if (!key) return;
-        await api.setApiKey(p.id, key);
-        p.has_key = true;
-        renderSettings();
-      });
-      cancelBtn.onclick = () => renderSettings();
-    };
-    const delKey = row.querySelector(".p-del-key");
-    if (delKey) {
-      delKey.onclick = guard(async () => {
-        await api.deleteApiKey(p.id);
-        p.has_key = false;
-        renderSettings();
-      });
-    }
-    row.querySelector(".p-delete").onclick = guard(async () => {
-      if (confirm(`Delete provider ${p.label}?`)) {
-        await api.deleteProvider(p.id);
-        await refreshProvidersFn();
-        renderSettings();
-      }
-    });
-    list.appendChild(row);
+  const slot = $("provider-picker-slot");
+  slot.innerHTML = "";
+  const newForm = $("provider-new");
+  if (!state.providers.length) {
+    $("provider-detail").innerHTML = "";
+    newForm.classList.remove("hidden");
+    return;
   }
+  if (!state.providers.some((p) => p.id === selectedProviderId)) {
+    selectedProviderId = state.providers[0].id;
+  }
+  const dd = makeDropdown({
+    value: state.providers.find((p) => p.id === selectedProviderId)?.label ?? "Select",
+    groups: [
+      {
+        label: "Providers",
+        options: [
+          ...state.providers.map((p) => ({
+            value: p.id,
+            label: p.label,
+            current: p.id === selectedProviderId,
+          })),
+          { value: "__new__", label: "New provider…", icon: "plus", dim: true },
+        ],
+      },
+    ],
+    onSelect: (v) => {
+      if (v === "__new__") {
+        $("provider-detail").innerHTML = "";
+        newForm.classList.remove("hidden");
+        dd.setValue(state.providers.find((p) => p.id === selectedProviderId)?.label ?? "Select");
+        return;
+      }
+      selectedProviderId = v;
+      newForm.classList.add("hidden");
+      dd.setValue(state.providers.find((p) => p.id === v)?.label ?? v);
+      renderProviderDetail();
+    },
+  });
+  slot.appendChild(dd.el);
+  dd.el.classList.add("down"); // top of the settings page — popup opens downward
+  renderProviderDetail();
+}
+
+/// One provider's config panel — models, base URL, API key, danger zone.
+function renderProviderDetail() {
+  const p = state.providers.find((x) => x.id === selectedProviderId);
+  const host = $("provider-detail");
+  host.innerHTML = "";
+  if (!p) return;
+  const row = document.createElement("div");
+  row.className = "provider-row";
+
+  const head = document.createElement("div");
+  head.className = "provider-head";
+  const strong = document.createElement("strong");
+  strong.textContent = p.label;
+  const kind = document.createElement("span");
+  kind.className = "dim";
+  kind.textContent = p.kind;
+  const badge = document.createElement("span");
+  badge.className = "badge " + (p.has_key ? "ok" : "warn");
+  badge.textContent = p.has_key ? "key set" : "no key";
+  head.append(strong, " ", kind, " ", badge);
+
+  // Models editor: checkbox per model (checked = enabled in the picker).
+  const modelsWrap = document.createElement("div");
+  modelsWrap.className = "models-wrap";
+  const modelsHead = document.createElement("div");
+  modelsHead.className = "dim models-head";
+  modelsHead.textContent = "Models (checked = shown in picker)";
+  const modelsGrid = document.createElement("div");
+  modelsGrid.className = "models-grid";
+  modelsWrap.append(modelsHead, modelsGrid);
+  const disabled = new Set(p.disabled_models ?? []);
+  const addModelRow = (name) => {
+    const mrow = document.createElement("label");
+    mrow.className = "model-check";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = !disabled.has(name);
+    cb.dataset.model = name;
+    const txt = document.createElement("span");
+    txt.textContent = name;
+    mrow.append(cb, txt);
+    modelsGrid.appendChild(mrow);
+    return mrow;
+  };
+  for (const m of p.models) addModelRow(m);
+  const addRow = document.createElement("div");
+  addRow.className = "model-add";
+  const addInput = document.createElement("input");
+  addInput.placeholder = "add model…";
+  const addBtn = document.createElement("button");
+  addBtn.type = "button";
+  addBtn.textContent = "Add";
+  addBtn.onclick = () => {
+    const name = addInput.value.trim();
+    if (!name) return;
+    if ([...modelsWrap.querySelectorAll("input[type=checkbox]")].some((c) => c.dataset.model === name)) return;
+    addModelRow(name);
+    addInput.value = "";
+  };
+  addRow.append(addInput, addBtn);
+  if (p.kind === "ollama") {
+    const fetchBtn = document.createElement("button");
+    fetchBtn.type = "button";
+    fetchBtn.textContent = "Fetch";
+    fetchBtn.title = "Fetch models from the Ollama server";
+    fetchBtn.onclick = guard(async () => {
+      const models = await api.listLocalModels(p.id);
+      if (models.length === 0) {
+        alert("No models on the Ollama server — pull one first (ollama pull …).");
+        return;
+      }
+      for (const m of models) {
+        if (![...modelsWrap.querySelectorAll("input[type=checkbox]")].some((c) => c.dataset.model === m)) {
+          addModelRow(m);
+        }
+      }
+      await saveProvider(p, row);
+    });
+    addRow.appendChild(fetchBtn);
+  }
+  modelsWrap.appendChild(addRow);
+
+  const baseLabel = document.createElement("label");
+  baseLabel.textContent = "Base URL ";
+  const baseInput = document.createElement("input");
+  baseInput.className = "p-base";
+  baseInput.value = p.base_url ?? "";
+  baseInput.placeholder = "(default)";
+  baseLabel.appendChild(baseInput);
+
+  // API key: inline field, always visible.
+  const keyWrap = document.createElement("div");
+  keyWrap.className = "key-row";
+  const keyInput = document.createElement("input");
+  keyInput.type = "password";
+  keyInput.placeholder = p.has_key ? "Replace API key" : "API key";
+  const keySave = document.createElement("button");
+  keySave.textContent = "Save key";
+  keySave.onclick = guard(async () => {
+    const key = keyInput.value.trim();
+    if (!key) return;
+    await api.setApiKey(p.id, key);
+    p.has_key = true;
+    renderProviderDetail();
+  });
+  keyWrap.append(keyInput, keySave);
+  if (p.has_key) {
+    const keyDel = document.createElement("button");
+    keyDel.textContent = "Delete key";
+    keyDel.onclick = guard(async () => {
+      await api.deleteApiKey(p.id);
+      p.has_key = false;
+      renderProviderDetail();
+    });
+    keyWrap.appendChild(keyDel);
+  }
+
+  const actions = document.createElement("div");
+  actions.className = "provider-actions";
+  const del = document.createElement("button");
+  del.className = "p-delete";
+  del.textContent = "Delete provider";
+  del.onclick = guard(async () => {
+    if (confirm(`Delete provider ${p.label}?`)) {
+      await api.deleteProvider(p.id);
+      selectedProviderId = null;
+      await refreshProvidersFn();
+      renderSettings();
+    }
+  });
+  actions.appendChild(del);
+
+  // Auto-save on any change.
+  modelsWrap.addEventListener("change", (e) => {
+    if (e.target.matches("input[type=checkbox]")) guard(() => saveProvider(p, row))();
+  });
+  baseInput.addEventListener("change", () => guard(() => saveProvider(p, row))());
+
+  row.append(head, modelsWrap, baseLabel, keyWrap, actions);
+  host.appendChild(row);
 }
 
 export function renderWorkspaces() {

@@ -67,16 +67,21 @@
         <div id="settings-content">
           <section id="section-providers">
             <h3>Providers</h3>
-            <p class="dim">Presets were added on first run — edit below, or add any OpenAI-compatible endpoint as custom. Checked models appear in the picker.</p>
-            <div id="provider-list"></div>
-            <h4>Add custom provider (OpenAI-compatible)</h4>
-            <form id="custom-provider-form" class="settings-form">
-              <input id="cp-label" placeholder="Label (e.g. Groq)" required />
-              <input id="cp-base-url" placeholder="Base URL (e.g. https://api.groq.com/openai/v1)" required />
-              <input id="cp-models" placeholder="Models, comma-separated (e.g. llama-3.3-70b-versatile)" required />
-              <input id="cp-key" placeholder="API key (stored in OS keychain)" type="password" />
-              <button type="submit">Add custom provider</button>
-            </form>
+            <div class="sp-picker-row">
+              <label class="dim">Provider</label>
+              <span id="provider-picker-slot"></span>
+            </div>
+            <div id="provider-detail"></div>
+            <div id="provider-new" class="hidden">
+              <h4>Add custom provider (OpenAI-compatible)</h4>
+              <form id="custom-provider-form" class="settings-form">
+                <input id="cp-label" placeholder="Label (e.g. Groq)" required />
+                <input id="cp-base-url" placeholder="Base URL (e.g. https://api.groq.com/openai/v1)" required />
+                <input id="cp-models" placeholder="Models, comma-separated (e.g. llama-3.3-70b-versatile)" required />
+                <input id="cp-key" placeholder="API key (stored in OS keychain)" type="password" />
+                <button type="submit">Add custom provider</button>
+              </form>
+            </div>
           </section>
           <section id="section-workspaces" class="hidden">
             <h3>Workspaces</h3>
