@@ -7,6 +7,22 @@ use crate::core::store::Store;
 use tauri::Manager;
 
 pub fn run() {
+    // Toast notifications are attributed by AppUserModelID — without one,
+    // Windows credits whatever shell launched us (e.g. "Windows PowerShell").
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        let aumid: Vec<u16> = std::ffi::OsStr::new("com.supergravity.app")
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        unsafe {
+            windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID(
+                aumid.as_ptr(),
+            );
+        }
+    }
+
     let dir = data_dir().expect("cannot determine app data dir");
     std::fs::create_dir_all(&dir).expect("cannot create app data dir");
     let store = Store::open(&dir.join("supergravity.db")).expect("cannot open store");
