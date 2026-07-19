@@ -269,6 +269,43 @@ details.think pre {
 .conv-new { font-size: 12px; display: flex; align-items: center; gap: 6px; }
 .conv-new:hover { color: var(--text); }
 
+/* --- sidebar search / rename / workspace remove --- */
+#conv-search {
+  width: 100%;
+  background: var(--bg-input);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 13px;
+}
+#conv-search:focus { outline: none; border-color: var(--accent); }
+.search-empty { padding: 10px 8px; }
+.conv-rename {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-input);
+  color: var(--text);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font: inherit;
+  font-size: 13px;
+}
+.conv-rename:focus { outline: none; }
+.ws-remove {
+  visibility: hidden;
+  margin-left: auto;
+  padding: 0 4px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.workspace-header:hover .ws-remove { visibility: visible; }
+.ws-remove:hover { color: var(--danger); }
+
 /* inline code pills */
 .md code {
   background: #2a2a33;

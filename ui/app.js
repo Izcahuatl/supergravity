@@ -255,9 +255,40 @@ setInterval(() => {
   }
 }, 1000);
 
+let convSearchQuery = "";
+
 export function renderSidebar() {
   const list = $("workspace-list");
   list.innerHTML = "";
+  const q = convSearchQuery.trim().toLowerCase();
+  if (q) {
+    // Flat search results across every workspace.
+    let any = false;
+    for (const ws of state.workspaces) {
+      for (const conv of state.conversations.get(ws.id) || []) {
+        if (!conv.title.toLowerCase().includes(q)) continue;
+        any = true;
+        const el = document.createElement("div");
+        el.className = "conversation" + (state.active?.id === conv.id ? " active" : "");
+        const title = document.createElement("span");
+        title.className = "conv-title";
+        title.textContent = conv.title;
+        const tag = document.createElement("span");
+        tag.className = "conv-time dim";
+        tag.textContent = ws.name;
+        el.append(title, tag);
+        el.onclick = guard(() => selectConversation(conv));
+        list.appendChild(el);
+      }
+    }
+    if (!any) {
+      const none = document.createElement("div");
+      none.className = "dim search-empty";
+      none.textContent = "No matching conversations";
+      list.appendChild(none);
+    }
+    return;
+  }
   for (const ws of state.workspaces) {
     const wsEl = document.createElement("div");
     wsEl.className = "workspace";
@@ -266,6 +297,21 @@ export function renderSidebar() {
     header.innerHTML = `${icon("folder", 13)}<span class="ws-name"></span>`;
     header.querySelector(".ws-name").textContent = ws.name;
     header.title = ws.path;
+    const rm = document.createElement("button");
+    rm.className = "ws-remove";
+    rm.textContent = "✕";
+    rm.title = "Remove workspace (files on disk are kept)";
+    rm.onclick = guard(async (e) => {
+      e.stopPropagation();
+      if (!confirm(`Remove workspace "${ws.name}" and all its conversations?\nFiles on disk are kept.`)) return;
+      const wasActive = state.active?.workspace_id === ws.id;
+      await api.removeWorkspace(ws.id);
+      state.workspaces = state.workspaces.filter((w) => w.id !== ws.id);
+      state.conversations.delete(ws.id);
+      if (wasActive) renderCenterScreen();
+      renderSidebar();
+    });
+    header.appendChild(rm);
     wsEl.appendChild(header);
     const convs = state.conversations.get(ws.id) || [];
     const showAll = state.showAll.has(ws.id);
@@ -276,6 +322,32 @@ export function renderSidebar() {
       const title = document.createElement("span");
       title.className = "conv-title";
       title.textContent = conv.title;
+      title.title = "Double-click to rename";
+      title.ondblclick = (e) => {
+        e.stopPropagation();
+        const input = document.createElement("input");
+        input.className = "conv-rename";
+        input.value = conv.title;
+        title.replaceWith(input);
+        input.focus();
+        input.select();
+        const save = guard(async () => {
+          const t = input.value.trim();
+          if (t && t !== conv.title) {
+            await api.renameConversation(conv.id, t);
+            conv.title = t;
+            if (state.active?.id === conv.id) $("chat-title").textContent = t;
+          }
+          renderSidebar();
+        });
+        input.onkeydown = (ev) => {
+          ev.stopPropagation();
+          if (ev.key === "Enter") save();
+          if (ev.key === "Escape") renderSidebar();
+        };
+        input.onclick = (ev) => ev.stopPropagation();
+        input.onblur = save;
+      };
       el.appendChild(title);
       const time = document.createElement("span");
       time.className = "conv-time dim";
@@ -414,6 +486,11 @@ attachMentions($("input"), () => state.active?.workspace_id);
 attachMentions($("center-input"), () => state.centerWorkspaceId);
 
 $("new-conversation").onclick = () => renderCenterScreen();
+
+$("conv-search").addEventListener("input", (e) => {
+  convSearchQuery = e.target.value;
+  renderSidebar();
+});
 
 // --- right-click Rewind on user messages ---
 let ctxMenu = null;

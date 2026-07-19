@@ -15,6 +15,29 @@ export const pendingApprovals = new Map(); // conversation_id -> {request_id, to
 let currentTextBubble = null;
 let currentPlanCard = null;
 
+// --- unfocused-window notifications ---
+function notifyUser(critical = false) {
+  if (document.hasFocus()) return;
+  try {
+    window.__TAURI__.window
+      .getCurrentWindow()
+      .requestUserAttention(critical ? 1 : 2); // UserAttentionType: 1=Critical, 2=Informational
+  } catch { /* attention API unavailable */ }
+}
+function beep() {
+  try {
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.frequency.value = 880;
+    gain.gain.value = 0.035;
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.15);
+    osc.onended = () => ctx.close();
+  } catch { /* audio unavailable */ }
+}
+
 /// Fetch + attach a collapsed diff preview to an approval card (write/edit).
 /// Best-effort: failures degrade to a dim note; Approve/Deny keep working.
 async function attachDiffPreview(card, conversationId, name, argsJson) {
@@ -52,6 +75,15 @@ function appendToolCard(card) {
 
 export function handleAgentEvent(payload) {
   const { conversation_id, event } = payload;
+
+  // Notify when the window is unfocused: flash on completion, flash+beep when
+  // an approval is waiting on the user.
+  if (event.kind === "approval_requested") {
+    notifyUser(true);
+    beep();
+  } else if (event.kind === "message_done") {
+    notifyUser(false);
+  }
 
   // Non-active conversations: track state only (no DOM).
   if (state.active?.id !== conversation_id) {
