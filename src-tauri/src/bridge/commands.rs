@@ -99,6 +99,19 @@ pub async fn get_messages_impl(state: &AppState, conversation_id: String) -> Res
     block(move || s.get_message_rows(&conversation_id)).await
 }
 
+pub async fn rewind_conversation_impl(
+    state: &AppState,
+    conversation_id: String,
+    message_id: i64,
+) -> Result<()> {
+    // Never rewrite history under a live agent.
+    if let Some(agent) = state.agents.lock().unwrap().get(&conversation_id) {
+        agent.cancel.cancel();
+    }
+    let s = state.store.clone();
+    block(move || s.rewind_messages(&conversation_id, message_id)).await
+}
+
 pub async fn set_approval_mode_impl(
     state: &AppState,
     conversation_id: String,
@@ -345,6 +358,17 @@ pub async fn get_messages(
     conversation_id: String,
 ) -> std::result::Result<Vec<crate::core::store::MessageRow>, String> {
     get_messages_impl(&state, conversation_id)
+        .await
+        .map_err(estr)
+}
+
+#[tauri::command]
+pub async fn rewind_conversation(
+    state: tauri::State<'_, AppState>,
+    conversation_id: String,
+    message_id: i64,
+) -> std::result::Result<(), String> {
+    rewind_conversation_impl(&state, conversation_id, message_id)
         .await
         .map_err(estr)
 }

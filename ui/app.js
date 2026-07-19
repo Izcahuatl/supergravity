@@ -409,6 +409,51 @@ export function renderModelPicker() {
 
 $("new-conversation").onclick = () => renderCenterScreen();
 
+// --- right-click Rewind on user messages ---
+let ctxMenu = null;
+function closeCtxMenu() {
+  ctxMenu?.remove();
+  ctxMenu = null;
+}
+document.addEventListener("click", closeCtxMenu);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeCtxMenu();
+});
+
+$("messages").addEventListener("contextmenu", (e) => {
+  const bubble = e.target.closest(".bubble.user");
+  if (!bubble?.dataset.msgId || !state.active) return;
+  e.preventDefault();
+  closeCtxMenu();
+  const menu = document.createElement("div");
+  menu.className = "ctx-menu";
+  const item = document.createElement("button");
+  item.type = "button";
+  item.className = "dropdown-item";
+  item.innerHTML = `${icon("undo", 13)}<span>Rewind to here</span>`;
+  item.onclick = guard(async () => {
+    closeCtxMenu();
+    const convId = state.active.id;
+    const text = bubble.textContent.trim();
+    await api.rewindConversation(convId, Number(bubble.dataset.msgId));
+    // The backend cancels a live agent for this conversation — mirror that.
+    state.running.delete(convId);
+    state.runStarted.delete(convId);
+    syncSendStop();
+    await refreshMessages();
+    renderSidebar();
+    const input = $("input");
+    input.value = text;
+    input.dispatchEvent(new Event("input")); // autoresize + enable Send
+    input.focus();
+  });
+  menu.appendChild(item);
+  menu.style.left = `${e.clientX}px`;
+  menu.style.top = `${e.clientY}px`;
+  document.body.appendChild(menu);
+  ctxMenu = menu;
+});
+
 $("center-send").onclick = guard(sendFromCenter);
 $("center-input").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) {

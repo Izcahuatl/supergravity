@@ -122,7 +122,7 @@ pub async fn run(req: AgentRequest) -> AgentOutcome {
                     id,
                     name,
                     args_json,
-                }) => calls.push((id, name, args_json)),
+                }) => calls.push((id, name, crate::core::types::sanitize_args_json(&args_json))),
                 Ok(ChatEvent::Usage { .. }) => {}
                 Ok(ChatEvent::Error(msg)) => {
                     stream_err = Some(Error::Provider {
@@ -154,7 +154,11 @@ pub async fn run(req: AgentRequest) -> AgentOutcome {
             let owned: Vec<String> = req.tools.iter().map(|t| t.spec().name).collect();
             let names: Vec<&str> = owned.iter().map(|s| s.as_str()).collect();
             if let Some((name, args_json)) = detect_text_tool_call(&text, &names) {
-                calls.push((format!("repair-{}", uuid::Uuid::new_v4()), name, args_json));
+                calls.push((
+                    format!("repair-{}", uuid::Uuid::new_v4()),
+                    name,
+                    crate::core::types::sanitize_args_json(&args_json),
+                ));
             }
         }
 

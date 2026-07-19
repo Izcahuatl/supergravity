@@ -197,6 +197,7 @@ export function renderMessages(msgs) {
   el.innerHTML = "";
   for (const run of groupRuns(msgs)) {
     const userBubble = addBubble("user");
+    userBubble.dataset.msgId = run.user.id; // for the right-click Rewind menu
     for (const p of run.user.parts) {
       if (p.type === "text") renderTextPart(userBubble, p.text);
     }

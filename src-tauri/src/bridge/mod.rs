@@ -26,6 +26,7 @@ pub fn run() {
             commands::rename_conversation,
             commands::delete_conversation,
             commands::get_messages,
+            commands::rewind_conversation,
             commands::set_approval_mode,
             commands::update_conversation_model,
             commands::list_providers,

@@ -72,7 +72,9 @@ fn openai_messages(messages: &[Message]) -> Vec<Value> {
                         } => Some(json!({
                             "id": id,
                             "type": "function",
-                            "function": {"name": name, "arguments": args_json}
+                            // History may contain malformed args from older runs;
+                            // llama.cpp-style templates hard-fail on those.
+                            "function": {"name": name, "arguments": crate::core::types::sanitize_args_json(args_json)}
                         })),
                         _ => None,
                     })
@@ -341,6 +343,25 @@ mod tests {
                 },
                 {"role": "tool", "tool_call_id": "call_1", "content": "file body"}
             ])
+        );
+    }
+
+    #[test]
+    fn body_sanitizes_malformed_tool_arguments() {
+        // Old history may hold fused/truncated args; they must never reach the
+        // provider raw (llama.cpp templates hard-fail on them).
+        let msgs = vec![Message {
+            role: Role::Assistant,
+            parts: vec![ContentPart::ToolCall {
+                id: "call_1".into(),
+                name: "read_file".into(),
+                args_json: r#"{"limit":20}{"limit":30}"#.into(),
+            }],
+        }];
+        let body = build_body("m", &msgs, &[]);
+        assert_eq!(
+            body["messages"][0]["tool_calls"][0]["function"]["arguments"],
+            serde_json::json!(r#"{"limit":20}"#)
         );
     }
 

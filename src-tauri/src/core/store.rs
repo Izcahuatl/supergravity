@@ -25,9 +25,10 @@ pub struct ConversationRow {
     pub updated_at: i64,
 }
 
-/// A message with its timestamp, for the bridge/UI layer.
+/// A message with its row id and timestamp, for the bridge/UI layer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MessageRow {
+    pub id: i64,
     pub role: Role,
     pub parts: Vec<crate::core::types::ContentPart>,
     pub created_at: i64,
@@ -367,15 +368,20 @@ impl Store {
     pub fn get_message_rows(&self, conversation_id: &str) -> Result<Vec<MessageRow>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT role, parts_json, created_at FROM messages WHERE conversation_id = ?1 ORDER BY id",
+            "SELECT id, role, parts_json, created_at FROM messages WHERE conversation_id = ?1 ORDER BY id",
         )?;
         let rows = stmt
             .query_map(params![conversation_id], |r| {
-                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?))
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, i64>(3)?,
+                ))
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         let mut out = Vec::new();
-        for (role, parts_json, created_at) in rows {
+        for (id, role, parts_json, created_at) in rows {
             let role = match role.as_str() {
                 "system" => Role::System,
                 "assistant" => Role::Assistant,
@@ -383,9 +389,23 @@ impl Store {
                 _ => Role::User,
             };
             let parts = serde_json::from_str(&parts_json)?;
-            out.push(MessageRow { role, parts, created_at });
+            out.push(MessageRow {
+                id,
+                role,
+                parts,
+                created_at,
+            });
         }
         Ok(out)
+    }
+
+    /// Rewind: drop the message with `message_id` and everything after it.
+    pub fn rewind_messages(&self, conversation_id: &str, message_id: i64) -> Result<()> {
+        self.conn.lock().unwrap().execute(
+            "DELETE FROM messages WHERE conversation_id = ?1 AND id >= ?2",
+            params![conversation_id, message_id],
+        )?;
+        Ok(())
     }
 
     pub fn upsert_provider(&self, cfg: &ProviderConfig) -> Result<()> {
@@ -550,6 +570,35 @@ mod tests {
         }
         let back = s.get_messages(&cid).unwrap();
         assert_eq!(back, msgs);
+    }
+
+    #[test]
+    fn rewind_deletes_from_message_onward() {
+        let s = store();
+        let ws = s.add_workspace("proj", "/tmp/proj").unwrap();
+        let cid = s
+            .create_conversation(&ws, "c", "openai", "m", ApprovalMode::Auto)
+            .unwrap();
+        s.append_message(&cid, &Message::text(Role::User, "first")).unwrap();
+        s.append_message(&cid, &Message::text(Role::Assistant, "one")).unwrap();
+        s.append_message(&cid, &Message::text(Role::User, "second")).unwrap();
+        s.append_message(&cid, &Message::text(Role::Assistant, "two")).unwrap();
+        let rows = s.get_message_rows(&cid).unwrap();
+        assert_eq!(rows.len(), 4);
+        // Row ids are stable and increasing — rewind at the second user turn.
+        assert!(rows[0].id < rows[2].id);
+        s.rewind_messages(&cid, rows[2].id).unwrap();
+        let rows = s.get_message_rows(&cid).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[1].parts, Message::text(Role::Assistant, "one").parts);
+        // Other conversations are untouched.
+        let cid2 = s
+            .create_conversation(&ws, "d", "openai", "m", ApprovalMode::Auto)
+            .unwrap();
+        s.append_message(&cid2, &Message::text(Role::User, "keep")).unwrap();
+        s.rewind_messages(&cid, rows[0].id).unwrap();
+        assert_eq!(s.get_message_rows(&cid).unwrap().len(), 0);
+        assert_eq!(s.get_message_rows(&cid2).unwrap().len(), 1);
     }
 
     #[test]

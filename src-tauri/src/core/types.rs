@@ -49,6 +49,25 @@ pub struct ToolSpec {
     pub params_schema: serde_json::Value,
 }
 
+/// Tool-call arguments must be one valid JSON object. Weak models sometimes
+/// emit truncated or concatenated JSON (`{"a":1}{"a":2}`); keep the first
+/// valid object when there is one, else fall back to `{}` so tools and
+/// provider chat templates never choke on garbage downstream.
+pub fn sanitize_args_json(raw: &str) -> String {
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(raw) {
+        if v.is_object() {
+            return raw.to_string();
+        }
+    }
+    let mut stream = serde_json::Deserializer::from_str(raw).into_iter::<serde_json::Value>();
+    if let Some(Ok(v)) = stream.next() {
+        if v.is_object() {
+            return v.to_string();
+        }
+    }
+    "{}".to_string()
+}
+
 /// One event from a provider's streaming chat response.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ChatEvent {
@@ -228,5 +247,27 @@ mod tests {
             json,
             serde_json::json!({"kind": "tool_call_finished", "data": {"tool_call_id": "c", "ok": true, "summary": "s"}})
         );
+    }
+
+    #[test]
+    fn sanitize_args_json_passthrough_when_valid() {
+        assert_eq!(sanitize_args_json(r#"{"path":"x"}"#), r#"{"path":"x"}"#);
+        assert_eq!(sanitize_args_json("{}"), "{}");
+    }
+
+    #[test]
+    fn sanitize_args_json_keeps_first_object_of_concatenated() {
+        // Weak models sometimes emit two calls fused into one string.
+        assert_eq!(
+            sanitize_args_json(r#"{"limit":20}{"limit":30}"#),
+            r#"{"limit":20}"#
+        );
+    }
+
+    #[test]
+    fn sanitize_args_json_falls_back_on_garbage() {
+        assert_eq!(sanitize_args_json(r#"{"path":""x.txt"}{"#), "{}");
+        assert_eq!(sanitize_args_json("not json at all"), "{}");
+        assert_eq!(sanitize_args_json("[1,2]"), "{}");
     }
 }

@@ -15,6 +15,8 @@ export const api = {
   renameConversation: (id, title) => invoke("rename_conversation", { id, title }),
   deleteConversation: (id) => invoke("delete_conversation", { id }),
   getMessages: (conversationId) => invoke("get_messages", { conversationId }),
+  rewindConversation: (conversationId, messageId) =>
+    invoke("rewind_conversation", { conversationId, messageId }),
   sendMessage: (conversationId, text) => invoke("send_message", { conversationId, text }),
   cancelAgent: (conversationId) => invoke("cancel_agent", { conversationId }),
   resolveApproval: (conversationId, requestId, allow) =>
