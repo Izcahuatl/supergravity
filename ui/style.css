@@ -172,19 +172,18 @@ button:hover, select:hover { border-color: var(--accent); }
 .conv-delete:hover { color: var(--danger); }
 .dim { color: var(--text-dim); font-size: 12px; }
 
-/* Flat, document-like turns: user = subtle card on the left, assistant = plain
-   text on the background. No chat bubbles. */
+/* Flat, document-like turns: user = plain text with an accent edge, assistant =
+   plain text on the background. No chat bubbles. */
 .bubble { margin: 0; }
 .bubble.user {
-  background: var(--bg-alt);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 10px 14px;
-  width: fit-content;
-  max-width: 100%;
-  margin: 22px 0 6px;
+  margin: 22px 0 8px;
+  padding: 2px 0 2px 10px;
+  border-left: 2px solid rgba(139, 92, 246, 0.55);
+  font-weight: 500;
 }
 .bubble.assistant { padding: 2px 0; margin-bottom: 20px; }
+/* Tool rows share one tight rhythm — no per-bubble 20px gaps. */
+.bubble.assistant.tool-wrap { margin-bottom: 4px; padding: 0; }
 .bubble.error {
   background: #3a2326;
   border: 1px solid var(--danger);

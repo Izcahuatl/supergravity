@@ -13,6 +13,13 @@ export const pendingApprovals = new Map(); // conversation_id -> {request_id, to
 
 let currentTextBubble = null;
 
+/// Tool cards get a tight wrapper (no 20px assistant-bubble gap between rows).
+function appendToolCard(card) {
+  const wrap = addBubble("assistant");
+  wrap.classList.add("tool-wrap");
+  wrap.appendChild(card);
+}
+
 export function handleAgentEvent(payload) {
   const { conversation_id, event } = payload;
 
@@ -51,7 +58,7 @@ export function handleAgentEvent(payload) {
       const card = renderToolCallCard({ name: event.data.name, args_json: event.data.args_json });
       card.dataset.callId = event.data.tool_call_id;
       card.querySelector(".tool-status").textContent = "running…";
-      addBubble("assistant").appendChild(card);
+      appendToolCard(card);
       break;
     }
     case "approval_requested": {
@@ -68,7 +75,7 @@ export function handleAgentEvent(payload) {
         status.textContent = "";
         status.appendChild(buildApprovalButtons(conversation_id, event.data));
       } else {
-        addBubble("assistant").appendChild(buildApprovalCard(conversation_id, event.data));
+        appendToolCard(buildApprovalCard(conversation_id, event.data));
       }
       break;
     }
@@ -165,7 +172,7 @@ export function resumeLiveState(conversationId) {
   currentTextBubble = null;
   const pending = pendingApprovals.get(conversationId);
   if (pending) {
-    addBubble("assistant").appendChild(buildApprovalCard(conversationId, pending));
+    appendToolCard(buildApprovalCard(conversationId, pending));
   }
 }
 
