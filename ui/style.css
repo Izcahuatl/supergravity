@@ -671,6 +671,97 @@ button:active { transform: scale(0.97); }
   animation: popIn 0.13s ease-out;
 }
 
+/* --- @ mention autocomplete --- */
+.mention-popup {
+  position: fixed;
+  z-index: 60;
+  max-height: 260px;
+  overflow-y: auto;
+  background: #232329;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  padding: 5px;
+  animation: popIn 0.13s ease-out;
+}
+.mention-popup .dropdown-item .icon { color: var(--text-dim); }
+
+/* --- attachment chips (from @mentions) --- */
+.attach-chip {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-alt);
+  margin: 6px 0;
+  overflow: hidden;
+}
+.attach-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--text-dim);
+}
+.attach-head:hover { color: var(--text); }
+.attach-body {
+  border-top: 1px solid var(--border);
+  padding: 8px 10px;
+  font-size: 11px;
+  color: var(--text-dim);
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+/* --- task plan card --- */
+.plan-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-alt);
+  padding: 8px 10px;
+  margin: 6px 0;
+  animation: fadeSlideIn 0.2s ease-out;
+}
+.plan-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+.plan-head .icon { color: var(--accent); }
+.plan-step {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  padding: 2px 0;
+  color: var(--text-dim);
+}
+.plan-step.done { color: var(--text-dim); text-decoration: line-through; }
+.plan-step.done .icon { color: var(--ok); }
+.plan-step.in_progress { color: var(--text); }
+.plan-step.in_progress .icon { color: var(--accent); }
+
+/* --- approval diff preview --- */
+.diff-toggle {
+  font-size: 12px;
+  cursor: pointer;
+  margin-top: 6px;
+  user-select: none;
+}
+.diff-toggle:hover { color: var(--text); }
+.diff-body {
+  margin-top: 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
 /* --- settings model checkboxes --- */
 .models-wrap { display: flex; flex-direction: column; gap: 2px; margin: 6px 0; }
 .models-head { font-size: 12px; margin-bottom: 2px; }

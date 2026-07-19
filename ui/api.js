@@ -17,6 +17,10 @@ export const api = {
   getMessages: (conversationId) => invoke("get_messages", { conversationId }),
   rewindConversation: (conversationId, messageId) =>
     invoke("rewind_conversation", { conversationId, messageId }),
+  searchWorkspaceFiles: (workspaceId, query) =>
+    invoke("search_workspace_files", { workspaceId, query }),
+  previewToolDiff: (conversationId, name, argsJson) =>
+    invoke("preview_tool_diff", { conversationId, name, argsJson }),
   sendMessage: (conversationId, text) => invoke("send_message", { conversationId, text }),
   cancelAgent: (conversationId) => invoke("cancel_agent", { conversationId }),
   resolveApproval: (conversationId, requestId, allow) =>

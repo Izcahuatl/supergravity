@@ -213,6 +213,14 @@ pub async fn prepare_run(
     };
     let provider: Arc<dyn Provider> = Arc::from(build_provider(&pcfg, api_key)?);
 
+    // Expand @path mentions into <attached> blocks before persisting, so the
+    // file context stays available for the rest of the conversation.
+    let text = {
+        let s = state.store.clone();
+        let w = conv.workspace_id.clone();
+        let ws = block(move || s.get_workspace(&w)).await?;
+        crate::core::mentions::expand(&text, std::path::Path::new(&ws.path))
+    };
     let user_msg = Message::text(Role::User, &text);
     {
         let s = state.store.clone();

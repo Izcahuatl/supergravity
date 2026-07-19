@@ -38,6 +38,10 @@ const PATHS = {
     '<path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/>',
   undo:
     '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5 5.5 5.5 0 0 1-5.5 5.5H11"/>',
+  circle:
+    '<circle cx="12" cy="12" r="9"/>',
+  play:
+    '<path d="m7 4 13 8-13 8z"/>',
 };
 
 export function icon(name, size = 14) {
@@ -53,4 +57,5 @@ export const TOOL_ICONS = {
   grep: "search",
   glob: "search",
   run_shell: "terminal",
+  update_plan: "list",
 };

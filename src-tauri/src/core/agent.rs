@@ -472,6 +472,9 @@ pub fn system_prompt(
          prefer small, targeted changes — for editing an existing file, use edit_file with an exact \
          old_string instead of rewriting the whole file with write_file; \
          when a tool returns an error, adapt or explain instead of retrying blindly.\n\
+         Planning: for any task with 2+ steps, maintain the visible plan via update_plan — \
+         call it FIRST with your steps (exactly one in_progress), update it as steps complete, \
+         and mark every step done before your final summary. Skip it only for trivial one-liners.\n\
          {}",
         workspace_root.display(),
         tool_names.join(", "),

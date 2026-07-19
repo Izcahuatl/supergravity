@@ -1,6 +1,7 @@
 import { state, refreshMessages, syncSendStop } from "./app.js";
 import { api } from "./api.js";
-import { addBubble, renderTextPart, renderToolCallCard, prettyArgs } from "./render.js";
+import { addBubble, renderTextPart, renderToolCallCard, renderPlanCard, parsePlanSteps, prettyArgs } from "./render.js";
+import { lineDiff, renderDiffRows } from "./diffview.js";
 import { icon } from "./icons.js";
 
 const $ = (id) => document.getElementById(id);
@@ -12,6 +13,35 @@ const streamBuffers = new Map(); // conversation_id -> raw streamed text
 export const pendingApprovals = new Map(); // conversation_id -> {request_id, tool_call_id, name, args_json}
 
 let currentTextBubble = null;
+let currentPlanCard = null;
+
+/// Fetch + attach a collapsed diff preview to an approval card (write/edit).
+/// Best-effort: failures degrade to a dim note; Approve/Deny keep working.
+async function attachDiffPreview(card, conversationId, name, argsJson) {
+  if (!["write_file", "edit_file"].includes(name)) return;
+  const holder = document.createElement("div");
+  holder.className = "diff-preview";
+  const toggle = document.createElement("div");
+  toggle.className = "diff-toggle dim";
+  toggle.textContent = "Preview changes…";
+  const body = document.createElement("div");
+  body.className = "diff-body hidden";
+  toggle.onclick = () => body.classList.toggle("hidden");
+  holder.append(toggle, body);
+  const buttons = card.querySelector(".approval-buttons");
+  card.insertBefore(holder, buttons ?? null);
+  try {
+    const p = await api.previewToolDiff(conversationId, name, argsJson);
+    if (!p || !card.isConnected) {
+      holder.remove();
+      return;
+    }
+    toggle.textContent = `Preview changes to ${p.path}`;
+    body.appendChild(renderDiffRows(lineDiff(p.old, p.new)));
+  } catch (e) {
+    toggle.textContent = `Preview unavailable: ${String(e).slice(0, 140)}`;
+  }
+}
 
 /// Tool cards get a tight wrapper (no 20px assistant-bubble gap between rows).
 function appendToolCard(card) {
@@ -55,6 +85,21 @@ export function handleAgentEvent(payload) {
     }
     case "tool_call_proposed": {
       currentTextBubble = null;
+      // Plan updates render as the Task checklist, not a tool row.
+      if (event.data.name === "update_plan") {
+        const steps = parsePlanSteps(event.data.args_json);
+        const fresh = renderPlanCard(steps);
+        if (currentPlanCard?.isConnected) {
+          currentPlanCard.replaceWith(fresh);
+        } else {
+          const wrap = addBubble("assistant");
+          wrap.classList.add("tool-wrap");
+          wrap.appendChild(fresh);
+        }
+        currentPlanCard = fresh;
+        currentPlanCard.dataset.callId = event.data.tool_call_id;
+        break;
+      }
       const card = renderToolCallCard({ name: event.data.name, args_json: event.data.args_json });
       card.dataset.callId = event.data.tool_call_id;
       card.querySelector(".tool-status").textContent = "running…";
@@ -71,6 +116,7 @@ export function handleAgentEvent(payload) {
         existing.classList.add("approval-card");
         // Approving blind is useless — show the args that need a decision.
         existing.querySelector(".tool-args")?.classList.remove("hidden");
+        attachDiffPreview(existing, conversation_id, event.data.name, event.data.args_json);
         const status = existing.querySelector(".tool-status");
         status.textContent = "";
         status.appendChild(buildApprovalButtons(conversation_id, event.data));
@@ -163,6 +209,7 @@ export function buildApprovalCard(conversationId, data) {
   args.className = "tool-args";
   args.textContent = prettyArgs(data.args_json);
   card.append(head, args, buildApprovalButtons(conversationId, data));
+  attachDiffPreview(card, conversationId, data.name, data.args_json);
   return card;
 }
 
@@ -178,4 +225,5 @@ export function resumeLiveState(conversationId) {
 
 export function resetEventState() {
   currentTextBubble = null;
+  currentPlanCard = null;
 }

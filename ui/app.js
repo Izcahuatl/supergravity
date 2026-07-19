@@ -5,6 +5,7 @@ import { handleAgentEvent, resetEventState, resumeLiveState } from "./events.js"
 import { initReview } from "./diffview.js";
 import { icon } from "./icons.js";
 import { makeDropdown } from "./dropdown.js";
+import { attachMentions } from "./mentions.js";
 
 export const state = {
   workspaces: [],
@@ -406,6 +407,11 @@ export function renderModelPicker() {
   });
   slot.appendChild(dd.el);
 }
+
+// @ file mentions in both composers — registered BEFORE the Enter-to-send
+// handlers so an open popup can intercept Enter/Tab/Escape first.
+attachMentions($("input"), () => state.active?.workspace_id);
+attachMentions($("center-input"), () => state.centerWorkspaceId);
 
 $("new-conversation").onclick = () => renderCenterScreen();
 

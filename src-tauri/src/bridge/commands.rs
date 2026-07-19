@@ -99,12 +99,160 @@ pub async fn get_messages_impl(state: &AppState, conversation_id: String) -> Res
     block(move || s.get_message_rows(&conversation_id)).await
 }
 
+/// Fuzzy file search for the composer's @ autocomplete. Returns up to 50
+/// workspace-relative paths (forward slashes), skipping noise directories.
+pub async fn search_workspace_files_impl(
+    state: &AppState,
+    workspace_id: String,
+    query: String,
+) -> Result<Vec<String>> {
+    const IGNORED: [&str; 4] = [".git", "target", "node_modules", ".idea"];
+    const MAX_VISITED: usize = 5000;
+    const MAX_RESULTS: usize = 50;
+    let s = state.store.clone();
+    block(move || {
+        let ws = s.get_workspace(&workspace_id)?;
+        let root = std::path::PathBuf::from(&ws.path);
+        let mut paths: Vec<String> = Vec::new();
+        let mut stack = vec![root.clone()];
+        let mut visited = 0;
+        while let Some(dir) = stack.pop() {
+            if visited >= MAX_VISITED {
+                break;
+            }
+            let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+            for entry in rd.flatten() {
+                visited += 1;
+                if visited >= MAX_VISITED {
+                    break;
+                }
+                let name = entry.file_name().to_string_lossy().to_string();
+                let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+                if is_dir {
+                    if !IGNORED.contains(&name.as_str()) && !name.starts_with('.') {
+                        stack.push(entry.path());
+                    }
+                    continue;
+                }
+                if let Ok(rel) = entry.path().strip_prefix(&root) {
+                    paths.push(rel.to_string_lossy().replace('\\', "/"));
+                }
+            }
+        }
+        let q = query.to_lowercase();
+        let mut matches: Vec<(u8, String)> = paths
+            .into_iter()
+            .filter_map(|p| {
+                let lower = p.to_lowercase();
+                if q.is_empty() {
+                    Some((1, p))
+                } else if lower.starts_with(&q) || lower.rsplit('/').next().unwrap_or("").starts_with(&q) {
+                    Some((0, p))
+                } else if lower.contains(&q) {
+                    Some((1, p))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        matches.sort();
+        matches.truncate(MAX_RESULTS);
+        Ok(matches.into_iter().map(|(_, p)| p).collect())
+    })
+    .await
+}
+
+/// Simulated result of a mutating tool call, for the approval card's diff
+/// preview. Never touches disk. Returns None for non-mutating tools or args
+/// that don't parse; tool-level errors (missing file, old_string not found)
+/// come back as Err so the card can show them inline.
+#[derive(Serialize)]
+pub struct ToolDiffPreview {
+    pub path: String,
+    pub old: String,
+    #[serde(rename = "new")]
+    pub new_: String,
+}
+
+pub async fn preview_tool_diff_impl(
+    state: &AppState,
+    conversation_id: String,
+    name: String,
+    args_json: String,
+) -> Result<Option<ToolDiffPreview>> {
+    if !matches!(name.as_str(), "write_file" | "edit_file") {
+        return Ok(None);
+    }
+    let s = state.store.clone();
+    block(move || {
+        let conv = s.get_conversation(&conversation_id)?;
+        let ws = s.get_workspace(&conv.workspace_id)?;
+        let root = std::path::PathBuf::from(&ws.path);
+        let args: serde_json::Value = serde_json::from_str(&args_json)
+            .map_err(|e| Error::Tool(format!("bad args: {e}")))?;
+        let path = args
+            .get("path")
+            .and_then(|p| p.as_str())
+            .ok_or_else(|| Error::Tool("missing path".into()))?;
+        let abs = crate::core::tools::resolve_in_workspace(&root, path)?;
+        let old = std::fs::read_to_string(&abs).unwrap_or_default();
+        let new = match name.as_str() {
+            "write_file" => {
+                let content = args
+                    .get("content")
+                    .and_then(|c| c.as_str())
+                    .ok_or_else(|| Error::Tool("missing content".into()))?;
+                match args.get("mode").and_then(|m| m.as_str()).unwrap_or("overwrite") {
+                    "append" => format!("{old}{content}"),
+                    _ => content.to_string(),
+                }
+            }
+            _ => {
+                // edit_file: mirror EditFileTool's replacement semantics.
+                let old_string = args
+                    .get("old_string")
+                    .and_then(|c| c.as_str())
+                    .ok_or_else(|| Error::Tool("missing old_string".into()))?;
+                let new_string = args
+                    .get("new_string")
+                    .and_then(|c| c.as_str())
+                    .unwrap_or("");
+                if old_string.is_empty() {
+                    return Err(Error::Tool("old_string must not be empty".into()));
+                }
+                if abs.metadata().is_err() {
+                    return Err(Error::Tool(format!("file does not exist: {path}")));
+                }
+                let count = old.matches(old_string).count();
+                let expected = args
+                    .get("expected_replacements")
+                    .and_then(|e| e.as_u64())
+                    .unwrap_or(1) as usize;
+                if count == 0 {
+                    return Err(Error::Tool("old_string not found".into()));
+                }
+                if count != expected {
+                    return Err(Error::Tool(format!(
+                        "old_string occurs {count} times, expected {expected}"
+                    )));
+                }
+                old.replacen(old_string, new_string, expected)
+            }
+        };
+        Ok(Some(ToolDiffPreview {
+            path: path.to_string(),
+            old,
+            new_: new,
+        }))
+    })
+    .await
+}
+
 pub async fn rewind_conversation_impl(
     state: &AppState,
     conversation_id: String,
     message_id: i64,
-) -> Result<()> {
-    // Never rewrite history under a live agent.
+) -> Result<()> {    // Never rewrite history under a live agent.
     if let Some(agent) = state.agents.lock().unwrap().get(&conversation_id) {
         agent.cancel.cancel();
     }
@@ -400,6 +548,29 @@ pub async fn rewind_conversation(
 }
 
 #[tauri::command]
+pub async fn search_workspace_files(
+    state: tauri::State<'_, AppState>,
+    workspace_id: String,
+    query: String,
+) -> std::result::Result<Vec<String>, String> {
+    search_workspace_files_impl(&state, workspace_id, query)
+        .await
+        .map_err(estr)
+}
+
+#[tauri::command]
+pub async fn preview_tool_diff(
+    state: tauri::State<'_, AppState>,
+    conversation_id: String,
+    name: String,
+    args_json: String,
+) -> std::result::Result<Option<ToolDiffPreview>, String> {
+    preview_tool_diff_impl(&state, conversation_id, name, args_json)
+        .await
+        .map_err(estr)
+}
+
+#[tauri::command]
 pub async fn set_approval_mode(
     state: tauri::State<'_, AppState>,
     conversation_id: String,
@@ -534,6 +705,105 @@ mod tests {
             .await
             .unwrap()
             .is_empty());
+    }
+
+    #[tokio::test]
+    async fn search_workspace_files_filters_and_caps() {
+        let state = AppState::test();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::create_dir_all(dir.path().join("target/debug")).unwrap();
+        std::fs::write(dir.path().join("src/main.rs"), "fn main(){}").unwrap();
+        std::fs::write(dir.path().join("src/lib.rs"), "// lib").unwrap();
+        std::fs::write(dir.path().join("notes.md"), "hi").unwrap();
+        std::fs::write(dir.path().join("target/debug/build.o"), "obj").unwrap();
+        let ws = state
+            .store
+            .add_workspace("proj", &dir.path().to_string_lossy())
+            .unwrap();
+        let cid = state
+            .store
+            .create_conversation(&ws, "c", "mock", "m", ApprovalMode::Auto)
+            .unwrap();
+        let all = search_workspace_files_impl(&state, ws.clone(), String::new())
+            .await
+            .unwrap();
+        assert!(all.contains(&"src/main.rs".to_string()), "{all:?}");
+        assert!(!all.iter().any(|p| p.starts_with("target/")), "{all:?}");
+        let filtered = search_workspace_files_impl(&state, ws.clone(), "lib".into())
+            .await
+            .unwrap();
+        assert_eq!(filtered, vec!["src/lib.rs".to_string()]);
+        let _ = cid; // conversation unused by search (workspace-scoped)
+    }
+
+    #[tokio::test]
+    async fn preview_tool_diff_write_and_edit() {
+        let state = AppState::test();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.txt"), "one\ntwo\n").unwrap();
+        let ws = state
+            .store
+            .add_workspace("proj", &dir.path().to_string_lossy())
+            .unwrap();
+        let cid = state
+            .store
+            .create_conversation(&ws, "c", "mock", "m", ApprovalMode::Auto)
+            .unwrap();
+        // write_file overwrite
+        let p = preview_tool_diff_impl(
+            &state,
+            cid.clone(),
+            "write_file".into(),
+            r#"{"path":"a.txt","content":"three"}"#.into(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(p.old, "one\ntwo\n");
+        assert_eq!(p.new_, "three");
+        // write_file append
+        let p = preview_tool_diff_impl(
+            &state,
+            cid.clone(),
+            "write_file".into(),
+            r#"{"path":"a.txt","content":"X","mode":"append"}"#.into(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(p.new_, "one\ntwo\nX");
+        // edit_file ok — and nothing written to disk
+        let p = preview_tool_diff_impl(
+            &state,
+            cid.clone(),
+            "edit_file".into(),
+            r#"{"path":"a.txt","old_string":"two","new_string":"TWO"}"#.into(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(p.new_, "one\nTWO\n");
+        assert_eq!(std::fs::read_to_string(dir.path().join("a.txt")).unwrap(), "one\ntwo\n");
+        // edit_file missing old_string → error
+        assert!(preview_tool_diff_impl(
+            &state,
+            cid.clone(),
+            "edit_file".into(),
+            r#"{"path":"a.txt","old_string":"nope","new_string":"x"}"#.into(),
+        )
+        .await
+        .is_err());
+        // read_file → None
+        assert!(preview_tool_diff_impl(
+            &state,
+            cid,
+            "read_file".into(),
+            r#"{"path":"a.txt"}"#.into(),
+        )
+        .await
+        .unwrap()
+        .is_none());
     }
 
     #[tokio::test]

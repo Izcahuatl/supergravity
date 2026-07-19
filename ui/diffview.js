@@ -43,6 +43,29 @@ export function lineDiff(oldText, newText) {
   return rows;
 }
 
+/// Build a .diff-table element from lineDiff rows (line numbers on both sides).
+export function renderDiffRows(rows) {
+  const table = document.createElement("div");
+  table.className = "diff-table";
+  let oldLn = 0, newLn = 0;
+  for (const row of rows) {
+    const tr = document.createElement("div");
+    tr.className = `diff-row diff-${row.type}`;
+    const lnOld = document.createElement("span");
+    lnOld.className = "diff-ln";
+    const lnNew = document.createElement("span");
+    lnNew.className = "diff-ln";
+    const txt = document.createElement("span");
+    txt.className = "diff-text";
+    txt.textContent = row.text || " ";
+    if (row.type !== "add") lnOld.textContent = ++oldLn;
+    if (row.type !== "del") lnNew.textContent = ++newLn;
+    tr.append(lnOld, lnNew, txt);
+    table.appendChild(tr);
+  }
+  return table;
+}
+
 export function openReview(changes) {
   const body = $("review-body");
   body.innerHTML = "";
@@ -66,26 +89,7 @@ export function openReview(changes) {
     stats.append(plus, minus);
     head.append(name, stats);
 
-    const table = document.createElement("div");
-    table.className = "diff-table";
-    let oldLn = 0, newLn = 0;
-    // compute starting line numbers from first non-same row
-    for (const row of ch.rows) {
-      const tr = document.createElement("div");
-      tr.className = `diff-row diff-${row.type}`;
-      const lnOld = document.createElement("span");
-      lnOld.className = "diff-ln";
-      const lnNew = document.createElement("span");
-      lnNew.className = "diff-ln";
-      const txt = document.createElement("span");
-      txt.className = "diff-text";
-      txt.textContent = row.text || " ";
-      if (row.type !== "add") lnOld.textContent = ++oldLn;
-      if (row.type !== "del") lnNew.textContent = ++newLn;
-      tr.append(lnOld, lnNew, txt);
-      table.appendChild(tr);
-    }
-    card.append(head, table);
+    card.append(head, renderDiffRows(ch.rows));
     body.appendChild(card);
   }
   $("review-panel").classList.remove("hidden");

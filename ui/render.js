@@ -24,6 +24,69 @@ export function renderTextPart(container, text) {
   container.appendChild(div);
 }
 
+// ---------- attachment chips (from @mention expansion) ----------
+
+const ATTACH_RE = /<attached path="([^"]+)">\n?([\s\S]*?)<\/attached>/g;
+
+function makeAttachChip(path, content) {
+  const chip = document.createElement("div");
+  chip.className = "attach-chip";
+  const head = document.createElement("div");
+  head.className = "attach-head";
+  head.innerHTML = `${icon("file", 12)}<span></span>`;
+  head.querySelector("span").textContent = path;
+  const body = document.createElement("pre");
+  body.className = "attach-body hidden";
+  body.textContent = content;
+  head.onclick = () => body.classList.toggle("hidden");
+  chip.append(head, body);
+  return chip;
+}
+
+/// User text with <attached> blocks rendered as collapsible chips.
+export function renderUserText(container, text) {
+  ATTACH_RE.lastIndex = 0;
+  let last = 0;
+  let m;
+  while ((m = ATTACH_RE.exec(text))) {
+    if (m.index > last) renderTextPart(container, text.slice(last, m.index));
+    container.appendChild(makeAttachChip(m[1], m[2].replace(/\n$/, "")));
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) renderTextPart(container, text.slice(last));
+}
+
+// ---------- task plan card ----------
+
+const PLAN_STATUS_ICON = { done: "check-circle", in_progress: "play", pending: "circle" };
+
+/// Checklist card for the agent-maintained plan (AG's "Task" artifact).
+export function renderPlanCard(steps) {
+  const card = document.createElement("div");
+  card.className = "plan-card";
+  const head = document.createElement("div");
+  head.className = "plan-head";
+  head.innerHTML = `${icon("list", 13)}<span>Task</span>`;
+  card.appendChild(head);
+  for (const s of steps) {
+    const row = document.createElement("div");
+    row.className = `plan-step ${s.status}`;
+    row.innerHTML = `${icon(PLAN_STATUS_ICON[s.status] || "circle", 12)}<span></span>`;
+    row.querySelector("span").textContent = s.text;
+    card.appendChild(row);
+  }
+  return card;
+}
+
+export function parsePlanSteps(argsJson) {
+  try {
+    const v = JSON.parse(argsJson);
+    return Array.isArray(v.steps) ? v.steps : [];
+  } catch {
+    return [];
+  }
+}
+
 export function prettyArgs(argsJson) {
   try {
     const v = JSON.parse(argsJson);
@@ -143,6 +206,7 @@ function renderWorkedFor(run, calls) {
   const steps = document.createElement("div");
   steps.className = "worked-steps hidden";
   for (const call of calls) {
+    if (call.name === "update_plan") continue; // shown as the plan card instead
     const verb = toolVerb(call.name, call.args_json);
     const failed = call.result?.is_error;
     const step = document.createElement("div");
@@ -199,9 +263,14 @@ export function renderMessages(msgs) {
     const userBubble = addBubble("user");
     userBubble.dataset.msgId = run.user.id; // for the right-click Rewind menu
     for (const p of run.user.parts) {
-      if (p.type === "text") renderTextPart(userBubble, p.text);
+      if (p.type === "text") renderUserText(userBubble, p.text);
     }
     const calls = collectCalls(run);
+    // Latest update_plan in this run renders as the Task checklist.
+    const planCalls = calls.filter((c) => c.name === "update_plan");
+    if (planCalls.length) {
+      el.appendChild(renderPlanCard(parsePlanSteps(planCalls[planCalls.length - 1].args_json)));
+    }
     if (calls.length) {
       el.appendChild(renderWorkedFor(run, calls));
     }
