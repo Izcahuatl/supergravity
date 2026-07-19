@@ -34,19 +34,34 @@ export function prettyArgs(argsJson) {
   }
 }
 
+const STEP_VERBS = {
+  read_file: (a) => `Read ${a.path ?? "file"}`,
+  write_file: (a) => `Wrote ${a.path ?? "file"}`,
+  edit_file: (a) => `Edited ${a.path ?? "file"}`,
+  list_dir: (a) => `Listed ${a.path ?? "."}`,
+  grep: (a) => `Searched ${a.pattern ?? ""}`,
+  glob: (a) => `Found files matching ${a.pattern ?? ""}`,
+  run_shell: (a) => `Ran ${(a.command ?? "").slice(0, 60)}`,
+};
+
+export function toolVerb(name, argsJson) {
+  return (STEP_VERBS[name] || (() => name))(parseArgs(argsJson));
+}
+
+/// Compact live tool row: icon + verb + right-aligned status. Args/result stay
+/// hidden behind a click on the row (approvals force them open).
 export function renderToolCallCard(call) {
   const card = document.createElement("div");
   card.className = "tool-card";
   const head = document.createElement("div");
   head.className = "tool-head";
-  head.innerHTML = `${icon(TOOL_ICONS[call.name] || "edit", 13)}<span></span>`;
-  head.querySelector("span").textContent = call.name;
-  const args = document.createElement("pre");
-  args.className = "tool-args";
-  args.textContent = prettyArgs(call.args_json);
-  const status = document.createElement("div");
-  status.className = "tool-status";
-  card.append(head, args, status);
+  head.innerHTML = `${icon(TOOL_ICONS[call.name] || "edit", 13)}<span class="tool-verb"></span><span class="tool-status"></span>`;
+  head.querySelector(".tool-verb").textContent = toolVerb(call.name, call.args_json);
+  const detail = document.createElement("pre");
+  detail.className = "tool-args hidden";
+  detail.textContent = prettyArgs(call.args_json);
+  card.append(head, detail);
+  head.onclick = () => detail.classList.toggle("hidden");
   return card;
 }
 
@@ -118,16 +133,6 @@ function collectCalls(run) {
   return calls;
 }
 
-const STEP_VERBS = {
-  read_file: (a) => `Analyzed ${a.path ?? "file"}`,
-  write_file: (a) => `Wrote ${a.path ?? "file"}`,
-  edit_file: (a) => `Edited ${a.path ?? "file"}`,
-  list_dir: (a) => `Listed ${a.path ?? "."}`,
-  grep: (a) => `Searched ${a.pattern ?? ""}`,
-  glob: (a) => `Found files matching ${a.pattern ?? ""}`,
-  run_shell: (a) => `Ran ${(a.command ?? "").slice(0, 60)}`,
-};
-
 function renderWorkedFor(run, calls) {
   const duration = relDuration(run.end - run.user.created_at);
   const wrap = document.createElement("div");
@@ -138,8 +143,7 @@ function renderWorkedFor(run, calls) {
   const steps = document.createElement("div");
   steps.className = "worked-steps hidden";
   for (const call of calls) {
-    const a = parseArgs(call.args_json);
-    const verb = (STEP_VERBS[call.name] || ((a) => call.name))(a);
+    const verb = toolVerb(call.name, call.args_json);
     const failed = call.result?.is_error;
     const step = document.createElement("div");
     step.className = "worked-step dim" + (failed ? " err" : "");

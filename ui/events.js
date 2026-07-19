@@ -62,6 +62,8 @@ export function handleAgentEvent(payload) {
       const existing = document.querySelector(`[data-call-id="${event.data.tool_call_id}"]`);
       if (existing) {
         existing.classList.add("approval-card");
+        // Approving blind is useless — show the args that need a decision.
+        existing.querySelector(".tool-args")?.classList.remove("hidden");
         const status = existing.querySelector(".tool-status");
         status.textContent = "";
         status.appendChild(buildApprovalButtons(conversation_id, event.data));
@@ -76,9 +78,15 @@ export function handleAgentEvent(payload) {
       if (card) {
         const status = card.querySelector(".tool-status");
         if (status) {
-          status.textContent = (event.data.ok ? "✓ " : "✗ ") + event.data.summary.slice(0, 200);
+          status.textContent = event.data.ok ? "✓" : "✗";
           status.className = "tool-status " + (event.data.ok ? "ok" : "err");
         }
+        const detail = card.querySelector(".tool-args");
+        if (detail && event.data.summary) {
+          detail.textContent += `\n→ ${event.data.summary.slice(0, 400)}`;
+        }
+        // Failures stay expanded so the error is visible without a click.
+        if (!event.data.ok) detail?.classList.remove("hidden");
         card.querySelector(".approval-buttons")?.remove();
       }
       break;

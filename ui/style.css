@@ -199,14 +199,14 @@ button:hover, select:hover { border-color: var(--accent); }
 .tool-card, .approval-card {
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 8px 10px;
-  margin: 6px 0;
-  background: var(--bg-input);
+  padding: 7px 10px;
+  margin: 4px 0;
+  background: var(--bg-alt);
 }
 .approval-card { border-color: var(--warn); }
-.tool-head { font-weight: 600; margin-bottom: 4px; }
-.tool-args, .tool-result { font-size: 11px; color: var(--text-dim); margin: 4px 0; white-space: pre-wrap; }
-.tool-status { font-size: 12px; margin-top: 4px; }
+.tool-head { cursor: pointer; user-select: none; }
+.tool-args, .tool-result { font-size: 11px; color: var(--text-dim); margin: 6px 0 2px; white-space: pre-wrap; }
+.tool-status { margin-left: auto; font-size: 12px; color: var(--text-dim); flex-shrink: 0; }
 .tool-status.ok { color: var(--ok); }
 .tool-status.err { color: var(--danger); }
 .approval-buttons { display: flex; gap: 8px; margin-top: 6px; }
