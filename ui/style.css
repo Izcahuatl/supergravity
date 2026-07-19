@@ -59,7 +59,7 @@ html, body, #app {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px;
-  resize: vertical;
+  resize: none;
   font: inherit;
 }
 
@@ -394,7 +394,7 @@ details.think pre {
   border: none;
   outline: none;
   color: var(--text);
-  resize: vertical;
+  resize: none;
   font: inherit;
 }
 .center-hint { text-align: center; font-size: 12px; margin: 0; }

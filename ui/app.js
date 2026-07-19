@@ -436,16 +436,18 @@ $("input").addEventListener("keydown", (e) => {
 });
 
 // Textarea autoresize + send/stop button state sync.
-function bindAutoresize(el, max = 160) {
+function bindAutoresize(el, { max = 160, min = 56 } = {}) {
   const fit = () => {
     el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, max) + "px";
+    const h = Math.max(min, Math.min(el.scrollHeight + 2, max));
+    el.style.height = h + "px";
+    el.style.overflowY = el.scrollHeight > max ? "auto" : "hidden";
   };
   el.addEventListener("input", fit);
   fit();
 }
 bindAutoresize($("input"));
-bindAutoresize($("center-input"));
+bindAutoresize($("center-input"), { max: 200, min: 76 });
 
 /// Send becomes Stop while the active conversation's agent runs.
 export function syncSendStop() {
