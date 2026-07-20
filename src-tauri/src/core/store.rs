@@ -32,6 +32,9 @@ pub struct MessageRow {
     pub role: Role,
     pub parts: Vec<crate::core::types::ContentPart>,
     pub created_at: i64,
+    /// Which model produced this message (assistant/tool only, v4+).
+    pub provider_id: Option<String>,
+    pub model: Option<String>,
 }
 
 /// SQLite-backed persistence. All methods are synchronous — async callers
@@ -195,6 +198,14 @@ impl Store {
                  PRAGMA user_version = 3;",
             )?;
         }
+        if version < 4 {
+            // Per-message model stamp, so the UI can show which model answered.
+            conn.execute_batch(
+                "ALTER TABLE messages ADD COLUMN provider_id TEXT;
+                 ALTER TABLE messages ADD COLUMN model TEXT;
+                 PRAGMA user_version = 4;",
+            )?;
+        }
         Ok(())
     }
 
@@ -356,6 +367,25 @@ impl Store {
     }
 
     pub fn append_message(&self, conversation_id: &str, msg: &Message) -> Result<()> {
+        self.append_message_inner(conversation_id, msg, None)
+    }
+
+    /// Append with the answering model stamped (assistant/tool messages).
+    pub fn append_message_with_provider(
+        &self,
+        conversation_id: &str,
+        msg: &Message,
+        provider: Option<(&str, &str)>,
+    ) -> Result<()> {
+        self.append_message_inner(conversation_id, msg, provider)
+    }
+
+    fn append_message_inner(
+        &self,
+        conversation_id: &str,
+        msg: &Message,
+        provider: Option<(&str, &str)>,
+    ) -> Result<()> {
         let role = match msg.role {
             Role::System => "system",
             Role::User => "user",
@@ -365,8 +395,15 @@ impl Store {
         let parts_json = serde_json::to_string(&msg.parts)?;
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO messages(conversation_id, role, parts_json, created_at) VALUES(?1, ?2, ?3, ?4)",
-            params![conversation_id, role, parts_json, now_ts()],
+            "INSERT INTO messages(conversation_id, role, parts_json, created_at, provider_id, model) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                conversation_id,
+                role,
+                parts_json,
+                now_ts(),
+                provider.map(|(p, _)| p),
+                provider.map(|(_, m)| m)
+            ],
         )?;
         conn.execute(
             "UPDATE conversations SET updated_at = ?1 WHERE id = ?2",
@@ -383,7 +420,7 @@ impl Store {
     pub fn get_message_rows(&self, conversation_id: &str) -> Result<Vec<MessageRow>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, role, parts_json, created_at FROM messages WHERE conversation_id = ?1 ORDER BY id",
+            "SELECT id, role, parts_json, created_at, provider_id, model FROM messages WHERE conversation_id = ?1 ORDER BY id",
         )?;
         let rows = stmt
             .query_map(params![conversation_id], |r| {
@@ -392,11 +429,13 @@ impl Store {
                     r.get::<_, String>(1)?,
                     r.get::<_, String>(2)?,
                     r.get::<_, i64>(3)?,
+                    r.get::<_, Option<String>>(4)?,
+                    r.get::<_, Option<String>>(5)?,
                 ))
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         let mut out = Vec::new();
-        for (id, role, parts_json, created_at) in rows {
+        for (id, role, parts_json, created_at, provider_id, model) in rows {
             let role = match role.as_str() {
                 "system" => Role::System,
                 "assistant" => Role::Assistant,
@@ -409,6 +448,8 @@ impl Store {
                 role,
                 parts,
                 created_at,
+                provider_id,
+                model,
             });
         }
         Ok(out)
@@ -592,7 +633,7 @@ mod tests {
             .unwrap()
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 3);
+        assert_eq!(v, 4);
     }
 
     #[test]
@@ -669,6 +710,26 @@ mod tests {
         }
         let back = s.get_messages(&cid).unwrap();
         assert_eq!(back, msgs);
+    }
+
+    #[test]
+    fn message_model_stamp_roundtrip() {
+        let s = store();
+        let ws = s.add_workspace("proj", "/tmp/proj").unwrap();
+        let cid = s
+            .create_conversation(&ws, "c", "openai", "m", ApprovalMode::Auto)
+            .unwrap();
+        s.append_message(&cid, &Message::text(Role::User, "q")).unwrap();
+        s.append_message_with_provider(
+            &cid,
+            &Message::text(Role::Assistant, "a"),
+            Some(("openai", "gpt-5")),
+        )
+        .unwrap();
+        let rows = s.get_message_rows(&cid).unwrap();
+        assert_eq!(rows[0].model, None, "user messages are unstamped");
+        assert_eq!(rows[1].model.as_deref(), Some("gpt-5"));
+        assert_eq!(rows[1].provider_id.as_deref(), Some("openai"));
     }
 
     #[test]

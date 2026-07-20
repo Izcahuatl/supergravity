@@ -282,6 +282,9 @@ export function renderMessages(msgs, convId) {
     for (const m of run.items) {
       if (m.role !== "assistant") continue;
       const bubble = addBubble("assistant");
+      // Right-click shows which model produced this message.
+      if (m.model) bubble.dataset.model = m.model;
+      if (m.provider_id) bubble.dataset.provider = m.provider_id;
       for (const p of m.parts) {
         if (p.type === "text") renderTextPart(bubble, p.text);
       }

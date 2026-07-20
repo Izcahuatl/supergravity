@@ -55,6 +55,8 @@ pub struct AgentTaskParts {
     pub conversation_id: String,
     /// Id of the user message that triggered this run (checkpoint boundary).
     pub after_message_id: i64,
+    /// Provider answering this run (stamped onto produced messages).
+    pub provider_id: String,
 }
 
 impl AgentTaskParts {
@@ -129,6 +131,7 @@ impl AgentTaskParts {
             events_rx,
             conversation_id: conv.id.clone(),
             after_message_id,
+            provider_id: conv.provider_id.clone(),
         })
     }
 }
@@ -148,6 +151,9 @@ pub async fn run_agent_task(
         parts.events_rx,
         emit,
     ));
+    // Captured before AgentRequest moves the fields out (used for stamping).
+    let stamp_pid = parts.provider_id.clone();
+    let stamp_model = parts.model.clone();
     let outcome = agent::run(AgentRequest {
         workspace_root: parts.workspace_root,
         provider: parts.provider,
@@ -171,7 +177,11 @@ pub async fn run_agent_task(
         let produced = outcome.produced;
         let _ = block(move || {
             for msg in &produced {
-                if let Err(e) = store.append_message(&cid, msg) {
+                if let Err(e) = store.append_message_with_provider(
+                    &cid,
+                    msg,
+                    Some((&stamp_pid, &stamp_model)),
+                ) {
                     eprintln!("supergravity: failed to persist produced message: {e}");
                 }
             }

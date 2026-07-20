@@ -610,33 +610,46 @@ document.addEventListener("keydown", (e) => {
 });
 
 $("messages").addEventListener("contextmenu", (e) => {
-  const bubble = e.target.closest(".bubble.user");
-  if (!bubble?.dataset.msgId || !state.active) return;
+  const userBubble = e.target.closest(".bubble.user");
+  const asstBubble = e.target.closest(".bubble.assistant");
+  if (!state.active || (!userBubble?.dataset.msgId && !asstBubble)) return;
   e.preventDefault();
   closeCtxMenu();
   const menu = document.createElement("div");
   menu.className = "ctx-menu";
-  const item = document.createElement("button");
-  item.type = "button";
-  item.className = "dropdown-item";
-  item.innerHTML = `${icon("undo", 13)}<span>Rewind to here</span>`;
-  item.onclick = guard(async () => {
-    closeCtxMenu();
-    const convId = state.active.id;
-    const text = bubble.textContent.trim();
-    await api.rewindConversation(convId, Number(bubble.dataset.msgId));
-    // The backend cancels a live agent for this conversation — mirror that.
-    state.running.delete(convId);
-    state.runStarted.delete(convId);
-    syncSendStop();
-    await refreshMessages();
-    renderSidebar();
-    const input = $("input");
-    input.value = text;
-    input.dispatchEvent(new Event("input")); // autoresize + enable Send
-    input.focus();
-  });
-  menu.appendChild(item);
+  if (userBubble?.dataset.msgId) {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "dropdown-item";
+    item.innerHTML = `${icon("undo", 13)}<span>Rewind to here</span>`;
+    item.onclick = guard(async () => {
+      closeCtxMenu();
+      const convId = state.active.id;
+      const text = userBubble.textContent.trim();
+      await api.rewindConversation(convId, Number(userBubble.dataset.msgId));
+      // The backend cancels a live agent for this conversation — mirror that.
+      state.running.delete(convId);
+      state.runStarted.delete(convId);
+      syncSendStop();
+      await refreshMessages();
+      renderSidebar();
+      const input = $("input");
+      input.value = text;
+      input.dispatchEvent(new Event("input")); // autoresize + enable Send
+      input.focus();
+    });
+    menu.appendChild(item);
+  } else {
+    // Assistant bubble: which model answered (stamped at run time; fall back
+    // to the conversation's current model for pre-stamp messages).
+    const model = asstBubble.dataset.model || state.active.model;
+    const pid = asstBubble.dataset.provider || state.active.provider_id;
+    const label = state.providers.find((p) => p.id === pid)?.label ?? pid;
+    const info = document.createElement("div");
+    info.className = "dropdown-item dim ctx-info";
+    info.textContent = `Answered by ${label} · ${model}`;
+    menu.appendChild(info);
+  }
   menu.style.left = `${e.clientX}px`;
   menu.style.top = `${e.clientY}px`;
   document.body.appendChild(menu);
