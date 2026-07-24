@@ -40,6 +40,53 @@ pub fn detect_text_tool_call(text: &str, tool_names: &[&str]) -> Option<(String,
 
 pub const DEFAULT_MAX_ITERATIONS: usize = 50;
 
+/// Rough per-message size (~4 chars/token) for history budgeting.
+fn message_chars(m: &Message) -> usize {
+    m.parts
+        .iter()
+        .map(|p| match p {
+            ContentPart::Text { text } => text.len(),
+            ContentPart::ToolCall { args_json, .. } => args_json.len() + 24,
+            ContentPart::ToolResult { content, .. } => content.len() + 24,
+        })
+        .sum::<usize>()
+        + 16
+}
+
+/// Drop oldest runs until the history fits `budget` chars. A "run" is a user
+/// turn plus the assistant/tool messages after it, so tool_call/tool_result
+/// pairs are never split. The latest run is always kept, even if it alone
+/// exceeds the budget. Dropped runs are noted with a placeholder message.
+#[doc(hidden)] // exposed for unit tests
+pub fn truncate_history(history: Vec<Message>, budget: usize) -> Vec<Message> {
+    let mut runs: Vec<Vec<Message>> = Vec::new();
+    for m in history {
+        if m.role == Role::User || runs.is_empty() {
+            runs.push(vec![m]);
+        } else {
+            runs.last_mut().unwrap().push(m);
+        }
+    }
+    let mut total: usize = runs.iter().flatten().map(message_chars).sum();
+    let mut dropped = 0;
+    while total > budget && runs.len() > 1 {
+        let run = runs.remove(0);
+        total -= run.iter().map(message_chars).sum::<usize>();
+        dropped += 1;
+    }
+    let mut out: Vec<Message> = runs.into_iter().flatten().collect();
+    if dropped > 0 {
+        out.insert(
+            0,
+            Message::text(
+                Role::User,
+                format!("[{dropped} earlier turn(s) omitted to fit the context window]"),
+            ),
+        );
+    }
+    out
+}
+
 pub struct AgentRequest {
     pub workspace_root: PathBuf,
     pub provider: Arc<dyn crate::core::providers::Provider>,
@@ -106,7 +153,10 @@ pub async fn run(req: AgentRequest) -> AgentOutcome {
         Role::System,
         system_prompt(&req.workspace_root, req.approvals.mode(), &req.tools),
     ));
-    messages.extend(req.history.iter().cloned());
+    messages.extend(truncate_history(
+        req.history,
+        req.provider.history_budget_chars(),
+    ));
     let mut produced: Vec<Message> = Vec::new();
 
     for _ in 0..req.max_iterations {
@@ -646,6 +696,65 @@ mod tests {
             std::fs::read_to_string(dir.path().join("a.txt")).unwrap(),
             "changed"
         );
+    }
+
+    #[test]
+    fn truncate_history_under_budget_is_noop() {
+        let h = vec![
+            Message::text(Role::User, "hi"),
+            Message::text(Role::Assistant, "hello"),
+        ];
+        let out = truncate_history(h.clone(), 10_000);
+        assert_eq!(out, h);
+    }
+
+    #[test]
+    fn truncate_history_drops_oldest_runs_and_notes() {
+        let big = "x".repeat(4000);
+        let h = vec![
+            Message::text(Role::User, big.clone()),
+            Message::text(Role::Assistant, big.clone()),
+            Message::text(Role::User, "recent"),
+            Message::text(Role::Assistant, "reply"),
+        ];
+        let out = truncate_history(h, 500);
+        // First run dropped, placeholder note inserted, latest run kept.
+        assert_eq!(out.len(), 3);
+        assert!(matches!(&out[0].parts[0], ContentPart::Text { text } if text.contains("omitted")));
+        assert!(matches!(&out[1].parts[0], ContentPart::Text { text } if text == "recent"));
+    }
+
+    #[test]
+    fn truncate_history_keeps_latest_run_even_over_budget() {
+        let big = "x".repeat(4000);
+        let h = vec![
+            Message::text(Role::User, "old"),
+            Message::text(Role::User, big.clone()),
+            Message {
+                role: Role::Assistant,
+                parts: vec![ContentPart::ToolCall {
+                    id: "c1".into(),
+                    name: "read_file".into(),
+                    args_json: "{}".into(),
+                }],
+            },
+            Message {
+                role: Role::Tool,
+                parts: vec![ContentPart::ToolResult {
+                    tool_call_id: "c1".into(),
+                    content: big,
+                    is_error: false,
+                }],
+            },
+        ];
+        let out = truncate_history(h, 100);
+        // The first run dropped (note inserted); the latest run survives
+        // intact, tool_call/tool_result pair included — even over budget.
+        assert_eq!(out.len(), 4);
+        assert!(matches!(&out[0].parts[0], ContentPart::Text { text } if text.contains("omitted")));
+        assert!(matches!(&out[1].parts[0], ContentPart::Text { .. }));
+        assert!(matches!(&out[2].parts[0], ContentPart::ToolCall { .. }));
+        assert!(matches!(&out[3].parts[0], ContentPart::ToolResult { .. }));
     }
 
     #[tokio::test]

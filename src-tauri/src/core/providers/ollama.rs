@@ -160,6 +160,11 @@ impl OllamaAssembler {
 
 #[async_trait::async_trait]
 impl Provider for OllamaProvider {
+    /// Local models have small contexts — keep history tight or they hard-fail.
+    fn history_budget_chars(&self) -> usize {
+        24_000
+    }
+
     async fn stream_chat(
         &self,
         model: &str,

@@ -21,6 +21,12 @@ pub trait Provider: Send + Sync {
         messages: &[Message],
         tools: &[ToolSpec],
     ) -> Result<Pin<Box<dyn Stream<Item = Result<ChatEvent>> + Send>>>;
+
+    /// Character budget for conversation history sent per run (≈4 chars/token).
+    /// Older runs beyond the budget are dropped (system prompt always stays).
+    fn history_budget_chars(&self) -> usize {
+        200_000 // API backends: large contexts are the norm
+    }
 }
 
 use crate::core::error::Error;
