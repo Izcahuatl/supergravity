@@ -1,0 +1,52 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="leftWing" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#07111b"/>
+      <stop offset="55%" stop-color="#5c294fff"/>
+      <stop offset="100%" stop-color="#ff7fe1ff"/>
+    </linearGradient>
+
+    <linearGradient id="rightWing" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#07111b"/>
+      <stop offset="55%" stop-color="#5c294fff"/>
+      <stop offset="100%" stop-color="#ff7fe1ff"/>
+    </linearGradient>
+
+    <linearGradient id="innerGlow" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#9be8ff"/>
+      <stop offset="70%" stop-color="#bba6ffff"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+
+  </defs>
+
+  <!-- Left outer wing -->
+  <path
+    d="M256 96
+       L120 352
+       C182 332 224 282 256 210
+       Z"
+    fill="url(#leftWing)"
+  />
+
+  <!-- Right outer wing -->
+  <path
+    d="M256 96
+       L392 352
+       C330 332 288 282 256 210
+       Z"
+    fill="url(#rightWing)"
+  />
+
+  <!-- Inner glow -->
+  <path
+    d="M256 210
+       C230 275 180 325 120 352
+       C175 340 225 315 256 250
+       C287 315 337 340 392 352
+       C332 325 282 275 256 210
+       Z"
+    fill="url(#innerGlow)"
+  />
+
+</svg>

@@ -76,6 +76,7 @@ export const guard = (fn) => (e) => fn(e).catch((err) => {
 });
 
 async function boot() {
+  const t0 = performance.now();
   const initial = await api.getInitialState();
   state.workspaces = initial.workspaces;
   state.providers = initial.providers;
@@ -122,6 +123,15 @@ async function boot() {
     }
   }
   if (!restored) renderCenterScreen();
+  // Dismiss the splash once it's had its moment (never just a flash).
+  const splash = $("splash");
+  if (splash) {
+    const wait = Math.max(0, 1100 - (performance.now() - t0));
+    setTimeout(() => {
+      splash.classList.add("done");
+      setTimeout(() => splash.remove(), 450);
+    }, wait);
+  }
 }
 
 /// Refetch + re-render the active conversation's history (e.g. after a run
