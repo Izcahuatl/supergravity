@@ -128,16 +128,6 @@ export function renderToolCallCard(call) {
   return card;
 }
 
-export function renderResultOnCard(card, result) {
-  const status = card.querySelector(".tool-status");
-  status.textContent = result.is_error ? `✗ ${result.content.slice(0, 200)}` : `✓ ${result.content.slice(0, 200)}`;
-  status.className = "tool-status " + (result.is_error ? "err" : "ok");
-  const pre = document.createElement("pre");
-  pre.className = "tool-result";
-  pre.textContent = result.content.length > 1000 ? result.content.slice(0, 1000) + "\n…" : result.content;
-  card.appendChild(pre);
-}
-
 // ---------- Antigravity-style history: runs, worked-for, change cards ----------
 
 function relDuration(secs) {

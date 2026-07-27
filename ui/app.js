@@ -18,7 +18,6 @@ export const state = {
   lastWorkspaceId: null, // last active workspace (default for new conversations)
   centerWorkspaceId: null, // workspace picked in the center-screen project dropdown
   prefs: { defaultApprovalMode: "manual", notifications: true }, // app config (Agent settings)
-  streaming: false,
 };
 
 const $ = (id) => document.getElementById(id);

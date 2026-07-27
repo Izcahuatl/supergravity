@@ -482,7 +482,6 @@ details.think pre {
   resize: none;
   font: inherit;
 }
-.center-hint { text-align: center; font-size: 12px; margin: 0; }
 .browse-row { display: flex; gap: 8px; }
 .browse-row input { flex: 1; }
 #center-send { min-width: 80px; }
