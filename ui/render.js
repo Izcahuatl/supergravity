@@ -127,7 +127,64 @@ const STEP_VERBS = {
   write_external_file: (a) => `Wrote external ${a.path ?? "file"}`,
 };
 
+// Workshop-aware labels: calls scoped to the conversation's Workshop say so
+// ("Wrote in workshop: x.py") instead of showing the full external path.
+let workshopsDir = null;
+export function setWorkshopsDir(dir) {
+  workshopsDir = dir ? dir.replace(/\\/g, "/").replace(/\/+$/, "") : null;
+}
+
+/// If `s` references a path inside <workshopsDir>/<cid>/, return the part
+/// after the cid (e.g. "test_script.py" or "sub/file.py"). Else null.
+function workshopRelative(s) {
+  if (!workshopsDir || !s) return null;
+  const marker = workshopsDir.toLowerCase() + "/";
+  const norm = s.replace(/\\/g, "/");
+  const idx = norm.toLowerCase().indexOf(marker);
+  if (idx === -1) return null;
+  const after = norm.slice(idx + marker.length); // "<cid>/<rest…>"
+  const slash = after.indexOf("/");
+  if (slash === -1 || slash === after.length - 1) return null;
+  return after.slice(slash + 1).split(/\s/)[0];
+}
+
+/// True when `s` is a path inside the workshops dir (a cid root or deeper).
+function inWorkshopsDir(s) {
+  if (!workshopsDir || !s) return false;
+  const marker = workshopsDir.toLowerCase() + "/";
+  const norm = s.replace(/\\/g, "/").toLowerCase();
+  const idx = norm.indexOf(marker);
+  return idx !== -1 && norm.length > idx + marker.length;
+}
+
 export function toolVerb(name, argsJson) {
+  const a = parseArgs(argsJson);
+  if (name === "run_shell") {
+    const wcmd = workshopRelative(a.command ?? "");
+    if (wcmd) {
+      const isPy = /^\s*(python|python3|py)\s/.test(a.command ?? "");
+      return isPy ? `Ran python in workshop: ${wcmd}` : `Ran in workshop: ${(a.command ?? "").slice(0, 40)}`;
+    }
+    if (inWorkshopsDir(a.cwd ?? "")) {
+      return `Ran in workshop: ${(a.command ?? "").slice(0, 40)}`;
+    }
+  }
+  const wrel = workshopRelative(a.path ?? "");
+  if (wrel) {
+    switch (name) {
+      case "write_file":
+      case "write_external_file":
+        return `Wrote in workshop: ${wrel}`;
+      case "edit_file":
+        return `Edited in workshop: ${wrel}`;
+      case "read_file":
+      case "read_external_file":
+        return `Read in workshop: ${wrel}`;
+      case "list_dir":
+      case "list_external_dir":
+        return `Listed in workshop: ${wrel}`;
+    }
+  }
   return (STEP_VERBS[name] || (() => name))(parseArgs(argsJson));
 }
 

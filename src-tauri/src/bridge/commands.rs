@@ -477,16 +477,24 @@ pub struct InitialState {
     pub config: AppConfig,
     pub workspaces: Vec<WorkspaceRow>,
     pub providers: Vec<ProviderConfig>,
+    /// Root of per-conversation Workshop dirs (for workshop-aware tool labels).
+    pub workshops_dir: String,
 }
 
 pub async fn get_initial_state_impl(state: &AppState) -> Result<InitialState> {
     let workspaces = list_workspaces_impl(state).await?;
     let providers = list_providers_impl(state).await?;
     let config = state.ui_config.lock().unwrap().clone();
+    let workshops_dir = state
+        .config_path
+        .parent()
+        .map(|p| p.join("workshops").to_string_lossy().to_string())
+        .unwrap_or_default();
     Ok(InitialState {
         config,
         workspaces,
         providers,
+        workshops_dir,
     })
 }
 

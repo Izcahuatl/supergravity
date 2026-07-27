@@ -1,5 +1,5 @@
 import { api } from "./api.js";
-import { renderMessages, renderPlanCard, parsePlanSteps } from "./render.js";
+import { renderMessages, renderPlanCard, parsePlanSteps, setWorkshopsDir } from "./render.js";
 import { initSettings } from "./settings.js";
 import { handleAgentEvent, resetEventState, resumeLiveState } from "./events.js";
 import { initReview } from "./diffview.js";
@@ -40,6 +40,7 @@ async function boot() {
   const initial = await api.getInitialState();
   state.workspaces = initial.workspaces;
   state.providers = initial.providers;
+  setWorkshopsDir(initial.workshops_dir);
   for (const ws of state.workspaces) {
     state.conversations.set(ws.id, await api.listConversations(ws.id));
   }
