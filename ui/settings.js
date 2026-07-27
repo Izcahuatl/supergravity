@@ -424,7 +424,7 @@ export function renderWorkspaces() {
     const btn = document.createElement("button");
     btn.textContent = "Remove";
     btn.onclick = guard(async () => {
-      if (!(await confirmDialog(`HEY! You sure you want to delete this project? (${ws.name} - its chats go too, files on disk are kept)`))) return;
+      if (!(await confirmDialog("HEY! You sure you want to delete this project? Its chats will go too!"))) return;
       await api.removeWorkspace(ws.id);
       state.workspaces = await api.listWorkspaces();
       state.conversations.delete(ws.id);

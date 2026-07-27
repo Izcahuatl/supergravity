@@ -466,7 +466,7 @@ export function renderSidebar() {
     rm.title = "Remove workspace (files on disk are kept)";
     rm.onclick = guard(async (e) => {
       e.stopPropagation();
-      if (!(await confirmDialog(`HEY! You sure you want to delete this project? (${ws.name} - its chats go too, files on disk are kept)`))) return;
+      if (!(await confirmDialog("HEY! You sure you want to delete this project? Its chats will go too!"))) return;
       const wasActive = state.active?.workspace_id === ws.id;
       await api.removeWorkspace(ws.id);
       state.workspaces = state.workspaces.filter((w) => w.id !== ws.id);
@@ -695,11 +695,12 @@ export function renderModelPicker() {
 attachMentions($("input"), () => state.active?.workspace_id);
 attachMentions($("center-input"), () => state.centerWorkspaceId);
 
-// --- slash commands: "/auto /manual /model /new" at the start of the input ---
+// --- slash commands: "/auto /manual /model /new /plan" at the input's start ---
 const SLASH_COMMANDS = [
   {
     name: "auto",
     desc: "Approvals: Auto - no per-write prompts",
+    needsActive: true,
     run: async () => {
       if (!state.active) return;
       await api.setApprovalMode(state.active.id, "auto");
@@ -710,6 +711,7 @@ const SLASH_COMMANDS = [
   {
     name: "manual",
     desc: "Approvals: Manual - approve every write",
+    needsActive: true,
     run: async () => {
       if (!state.active) return;
       await api.setApprovalMode(state.active.id, "manual");
@@ -720,11 +722,23 @@ const SLASH_COMMANDS = [
   {
     name: "model",
     desc: "Open the model picker",
+    needsActive: true,
     run: async () => {
       document.querySelector("#model-slot .dropdown-trigger")?.click();
     },
   },
   { name: "new", desc: "Start a new conversation", run: async () => renderCenterScreen() },
+  {
+    name: "plan",
+    desc: "Have the agent plan with a task checklist first",
+    run: async () => {
+      const ta = document.activeElement?.tagName === "TEXTAREA" ? document.activeElement : $("input");
+      ta.value = "Plan this with update_plan first, then do it: ";
+      ta.dispatchEvent(new Event("input"));
+      ta.focus();
+      ta.setSelectionRange(ta.value.length, ta.value.length);
+    },
+  },
 ];
 
 function attachSlash(textarea) {
@@ -760,13 +774,17 @@ function attachSlash(textarea) {
     close();
     textarea.value = "";
     textarea.dispatchEvent(new Event("input"));
+    textarea.focus();
     await cmd.run();
   };
   textarea.addEventListener("input", () => {
     const upto = textarea.value.slice(0, textarea.selectionStart);
     const m = upto.match(/^\/(\w*)$/);
     if (!m) return close();
-    matches = SLASH_COMMANDS.filter((c) => c.name.startsWith(m[1].toLowerCase()));
+    // Active-only commands are hidden where they can't act (center screen).
+    matches = SLASH_COMMANDS.filter(
+      (c) => c.name.startsWith(m[1].toLowerCase()) && (state.active || !c.needsActive)
+    );
     if (!matches.length) return close();
     activeIdx = 0;
     const r = textarea.getBoundingClientRect();
@@ -800,6 +818,7 @@ function attachSlash(textarea) {
   });
 }
 attachSlash($("input"));
+attachSlash($("center-input"));
 
 $("new-conversation").onclick = () => renderCenterScreen();
 
