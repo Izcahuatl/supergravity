@@ -252,7 +252,13 @@ async function transitionCenterToComposer() {
   });
   document.body.appendChild(ghost);
 
-  // Fade the rest of the center screen away under the moving ghost.
+  // Only the shell morphs: the ghost's controls fade out right away (their
+  // layout doesn't match the real composer's), and the ORIGINAL card hides
+  // instantly — fading the whole center screen would show two cards at once.
+  for (const child of ghost.children) {
+    child.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 120, fill: "forwards" });
+  }
+  card.style.visibility = "hidden";
   center.style.transition = "opacity 0.28s ease";
   center.style.opacity = "0";
 
