@@ -288,6 +288,11 @@ async function transitionCenterToComposer() {
   } catch {
     /* aborted */
   }
+  // WAAPI fill:forwards outranks inline styles — without canceling, the next
+  // transition would see this run's opacity:1 fill and show the composer early.
+  fadeOut.cancel();
+  fadeIn.cancel();
+  anim.cancel();
   ghost.remove();
   center.classList.add("hidden");
   center.style.opacity = "";
