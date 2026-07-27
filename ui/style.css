@@ -161,7 +161,9 @@ button:hover, select:hover { border-color: var(--accent); }
   text-overflow: ellipsis;
 }
 .conversation:hover { background: var(--bg-input); }
-.conversation.active { background: var(--bg-input); outline: 1px solid var(--accent); }
+/* Active row: AG-style soft fill + slightly brighter text, no accent border. */
+.conversation.active { background: #26262e; }
+.conversation.active .conv-title { color: #fff; }
 .conv-delete {
   visibility: hidden;
   padding: 0 4px;
@@ -564,9 +566,6 @@ button, select, .conversation {
   transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease, transform 0.06s ease;
 }
 button:active { transform: scale(0.97); }
-.conversation { border-left: 2px solid transparent; }
-.conversation:hover { border-left-color: var(--accent); }
-.conversation.active { border-left-color: var(--accent); outline: none; }
 .workspace-header { transition: color 0.14s ease; }
 
 /* --- streaming caret --- */
