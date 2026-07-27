@@ -122,6 +122,7 @@ const STEP_VERBS = {
   grep: (a) => `Searched ${a.pattern ?? ""}`,
   glob: (a) => `Found files matching ${a.pattern ?? ""}`,
   run_shell: (a) => `Ran ${(a.command ?? "").slice(0, 60)}`,
+  list_external_dir: (a) => `Listed external ${a.path ?? "dir"}`,
 };
 
 export function toolVerb(name, argsJson) {

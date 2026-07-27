@@ -17,6 +17,10 @@ pub struct ApprovalBroker {
     events: mpsc::Sender<AgentEvent>,
 }
 
+/// Tools that ALWAYS prompt the user, even in Auto mode — they cross the
+/// workspace sandbox boundary, so auto-approving them would defeat the point.
+const ALWAYS_ASK: [&str; 1] = ["list_external_dir"];
+
 impl ApprovalBroker {
     pub fn new(mode: ApprovalMode, events: mpsc::Sender<AgentEvent>) -> Self {
         ApprovalBroker {
@@ -37,7 +41,7 @@ impl ApprovalBroker {
     /// Returns true when the call may proceed. Mode is read per check, so a
     /// mid-run mode switch applies to the next tool call.
     pub async fn check(&self, tool_call_id: &str, name: &str, args_json: &str) -> Result<bool> {
-        if self.mode() == ApprovalMode::Auto {
+        if self.mode() == ApprovalMode::Auto && !ALWAYS_ASK.contains(&name) {
             return Ok(true);
         }
         let request_id = uuid::Uuid::new_v4().to_string();
@@ -86,6 +90,26 @@ mod tests {
         let ok = broker.check("call1", "write_file", "{}").await.unwrap();
         assert!(ok);
         assert!(rx.try_recv().is_err(), "no event in auto mode");
+    }
+
+    #[tokio::test]
+    async fn always_ask_tools_prompt_even_in_auto_mode() {
+        let (tx, mut rx) = mpsc::channel(8);
+        let broker = std::sync::Arc::new(ApprovalBroker::new(ApprovalMode::Auto, tx));
+        let b2 = broker.clone();
+        let handle = tokio::spawn(async move {
+            b2.check("call1", "list_external_dir", r#"{"path":"B:\\x"}"#).await
+        });
+        let ev = rx.recv().await.unwrap();
+        let request_id = match ev {
+            AgentEvent::ApprovalRequested { request_id, name, .. } => {
+                assert_eq!(name, "list_external_dir");
+                request_id
+            }
+            other => panic!("expected ApprovalRequested, got {other:?}"),
+        };
+        broker.resolve(&request_id, true).unwrap();
+        assert!(handle.await.unwrap().unwrap());
     }
 
     #[tokio::test]

@@ -210,8 +210,60 @@ fn list_recursive(dir: &std::path::Path, depth: usize, level: usize, out: &mut V
     }
 }
 
-pub struct EditFileTool;
+/// List a directory OUTSIDE the workspace sandbox. Always gated by an explicit
+/// user prompt (see `ALWAYS_ASK` in the approval broker), regardless of mode.
+pub struct ListExternalDirTool;
 
+#[derive(Deserialize)]
+struct ListExternalDirArgs {
+    path: String,
+    depth: Option<usize>,
+}
+
+#[async_trait::async_trait]
+impl Tool for ListExternalDirTool {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "list_external_dir".into(),
+            description: "List files in a directory OUTSIDE the workspace (absolute path). The user is prompted before this runs. Use ONLY when the user explicitly asks for something outside the project.".into(),
+            params_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Absolute directory path"},
+                    "depth": {"type": "integer", "description": "Recursion depth (default 1)"}
+                },
+                "required": ["path"]
+            }),
+        }
+    }
+
+    fn needs_approval(&self) -> bool {
+        true
+    }
+
+    async fn execute(&self, _ctx: &ToolContext, args_json: &str) -> Result<String> {
+        let args: ListExternalDirArgs = serde_json::from_str(args_json)?;
+        let path = std::path::PathBuf::from(&args.path);
+        if !path.is_absolute() {
+            return Err(Error::Tool(format!(
+                "external path must be absolute: {}",
+                args.path
+            )));
+        }
+        if !path.is_dir() {
+            return Err(Error::Tool(format!("not a directory: {}", path.display())));
+        }
+        let depth = args.depth.unwrap_or(1);
+        let mut out = Vec::new();
+        list_recursive(&path, depth, 0, &mut out);
+        if out.len() >= MAX_LIST_ENTRIES {
+            out.push(format!("…[capped at {MAX_LIST_ENTRIES} entries]"));
+        }
+        Ok(out.join("\n"))
+    }
+}
+
+pub struct EditFileTool;
 #[derive(Deserialize)]
 struct EditFileArgs {
     path: String,
@@ -553,5 +605,24 @@ mod tests {
             .execute(&ctx, r#"{"path": "top.txt"}"#)
             .await
             .is_err());
+    }
+
+    #[tokio::test]
+    async fn list_external_dir_rejects_relative_and_lists_absolute() {
+        let (dir, ctx) = ctx();
+        // Relative paths are rejected — the tool only takes absolute ones.
+        assert!(ListExternalDirTool
+            .execute(&ctx, r#"{"path": "src"}"#)
+            .await
+            .is_err());
+        // Absolute path outside the workspace root is fine (the sandbox is
+        // bypassed by design; the approval prompt gates it, not the path check).
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("out.txt"), "x").unwrap();
+        let args = format!(r#"{{"path": "{}"}}"#, outside.path().to_string_lossy().replace('\\', "\\\\"));
+        let out = ListExternalDirTool.execute(&ctx, &args).await.unwrap();
+        assert!(out.contains("out.txt"), "{out}");
+        assert!(ListExternalDirTool.needs_approval());
+        let _ = dir;
     }
 }

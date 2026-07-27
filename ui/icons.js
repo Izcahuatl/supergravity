@@ -58,4 +58,5 @@ export const TOOL_ICONS = {
   glob: "search",
   run_shell: "terminal",
   update_plan: "list",
+  list_external_dir: "alert",
 };

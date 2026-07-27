@@ -31,6 +31,7 @@ pub fn default_tools() -> Vec<Box<dyn Tool>> {
         Box::new(search::GlobTool),
         Box::new(shell::RunShellTool),
         Box::new(plan::UpdatePlanTool),
+        Box::new(fs::ListExternalDirTool),
     ]
 }
 

@@ -173,6 +173,9 @@ export function handleAgentEvent(payload) {
         existing.classList.add("approval-card");
         // Approving blind is useless — show the args that need a decision.
         existing.querySelector(".tool-args")?.classList.remove("hidden");
+        if (event.data.name === "list_external_dir") {
+          existing.querySelector(".tool-verb").textContent = "Agent wants to access an external directory";
+        }
         attachDiffPreview(existing, conversation_id, event.data.name, event.data.args_json);
         const status = existing.querySelector(".tool-status");
         status.textContent = "";
@@ -261,7 +264,10 @@ export function buildApprovalCard(conversationId, data) {
   const head = document.createElement("div");
   head.className = "tool-head";
   head.innerHTML = `${icon("alert", 13)}<span></span>`;
-  head.querySelector("span").textContent = `${data.name} needs approval`;
+  head.querySelector("span").textContent =
+    data.name === "list_external_dir"
+      ? "Agent wants to access an external directory"
+      : `${data.name} needs approval`;
   const args = document.createElement("pre");
   args.className = "tool-args";
   args.textContent = prettyArgs(data.args_json);
