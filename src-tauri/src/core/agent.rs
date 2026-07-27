@@ -38,6 +38,17 @@ pub fn detect_text_tool_call(text: &str, tool_names: &[&str]) -> Option<(String,
     None
 }
 
+/// True when the call's `path` arg resolves inside the Workshop — external
+/// tools used on the Workshop stay inside the sandbox, so no external prompt.
+fn resolves_in_workshop(workshop_root: &Option<PathBuf>, args_json: &str) -> bool {
+    let Some(w) = workshop_root else { return false };
+    let path = serde_json::from_str::<serde_json::Value>(args_json)
+        .ok()
+        .and_then(|v| v.get("path")?.as_str().map(str::to_string));
+    let Some(p) = path else { return false };
+    crate::core::tools::resolve_in_workspace(w, &p).is_ok()
+}
+
 pub const DEFAULT_MAX_ITERATIONS: usize = 50;
 
 /// Rough per-message size (~4 chars/token) for history budgeting.
@@ -332,7 +343,10 @@ pub async fn run(req: AgentRequest) -> AgentOutcome {
                     }
                 }
                 Some(t) => {
-                    if t.needs_approval() {
+                    // External tools aimed at a path inside the Workshop are
+                    // still inside the sandbox — skip the external prompt.
+                    let sandboxed = resolves_in_workshop(&req.workshop_root, &args_json);
+                    if t.needs_approval() && !sandboxed {
                         // Cancel must interrupt the approval wait, not just iterations.
                         let decision = tokio::select! {
                             _ = req.cancel.cancelled() => None,
@@ -512,8 +526,10 @@ pub fn system_prompt(
     let workshop_note = match workshop_root {
         Some(w) => format!(
             "\nWorkshop: you have a private scratch directory OUTSIDE the workspace at {} — \
-             use it freely for experiments, python scripts, and temp files. Your file tools \
-             accept absolute paths inside it; run scripts there via run_shell (e.g. python).",
+             use it freely for experiments, python scripts, and temp files. It is INSIDE your \
+             sandbox: use the normal file tools (write_file, read_file, …) with absolute paths \
+             in it — never the external tools, which are only for paths outside your sandbox. \
+             Run scripts there via run_shell (e.g. python).",
             w.display()
         ),
         None => String::new(),
@@ -777,6 +793,45 @@ mod tests {
         assert!(matches!(&out[1].parts[0], ContentPart::Text { .. }));
         assert!(matches!(&out[2].parts[0], ContentPart::ToolCall { .. }));
         assert!(matches!(&out[3].parts[0], ContentPart::ToolResult { .. }));
+    }
+
+    /// External tools pointed at the Workshop stay inside the sandbox:
+    /// no approval prompt even in Manual mode.
+    #[tokio::test]
+    async fn workshop_paths_skip_external_approval() {
+        let shop = tempfile::tempdir().unwrap();
+        let target = shop.path().join("w.txt");
+        let script = vec![
+            vec![
+                Ok(ChatEvent::ToolCall {
+                    id: "c1".into(),
+                    name: "write_external_file".into(),
+                    args_json: format!(
+                        r#"{{"path":"{}","content":"x"}}"#,
+                        target.to_string_lossy().replace('\\', "\\\\")
+                    ),
+                }),
+                Ok(ChatEvent::Done),
+            ],
+            vec![Ok(ChatEvent::TextDelta("ok".into())), Ok(ChatEvent::Done)],
+        ];
+        let (result, events, _, _) = run_agent(RunArgs {
+            script,
+            mode: ApprovalMode::Manual, // writes would normally prompt
+            tools: crate::core::tools::default_tools(),
+            max_iterations: 5,
+            backup: None,
+            workshop_root: Some(shop.path().to_path_buf()),
+        })
+        .await;
+        assert!(result.error.is_none(), "{:?}", result.error);
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, AgentEvent::ApprovalRequested { .. })),
+            "workshop path must not prompt"
+        );
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "x");
     }
 
     #[tokio::test]
