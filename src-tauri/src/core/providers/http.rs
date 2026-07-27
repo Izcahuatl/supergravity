@@ -60,7 +60,7 @@ impl Utf8Buf {
 
 /// POST a request and return the response body as a stream of text chunks.
 /// Non-2xx responses become [`Error::Provider`] with a truncated body.
-/// Timeouts: 30 s to connect/receive headers, 120 s idle between chunks —
+/// Timeouts: 30 s to connect/receive headers, 120 s idle between chunks -
 /// a long-but-alive LLM stream must NOT be killed by a total request timeout.
 pub async fn post_stream(
     req: reqwest::RequestBuilder,
@@ -121,7 +121,7 @@ mod tests {
 
     #[test]
     fn utf8buf_split_multibyte_char_across_chunks() {
-        // 'é' is 0xC3 0xA9 — split between the two bytes.
+        // 'é' is 0xC3 0xA9 - split between the two bytes.
         let mut b = Utf8Buf::new();
         assert_eq!(b.push(&[0x68, 0xC3]), Some("h".to_string()));
         assert_eq!(b.push(&[0xA9, 0x21]), Some("é!".to_string()));

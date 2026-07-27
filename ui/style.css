@@ -186,7 +186,7 @@ button:hover, select:hover { border-color: var(--accent); }
   font-weight: 500;
 }
 .bubble.assistant { padding: 2px 0; margin-bottom: 20px; }
-/* Tool rows share one tight rhythm — no per-bubble 20px gaps. */
+/* Tool rows share one tight rhythm - no per-bubble 20px gaps. */
 .bubble.assistant.tool-wrap { margin-bottom: 4px; padding: 0; }
 .bubble.error {
   background: #3a2326;
@@ -998,7 +998,7 @@ button:active { transform: scale(0.97); }
   background: var(--accent);
   border-color: var(--accent);
 }
-/* CSS-drawn check, absolutely placed over the box (no image — CSP-safe). */
+/* CSS-drawn check, absolutely placed over the box (no image - CSP-safe). */
 .model-check { position: relative; }
 .model-check:has(input:checked)::after {
   content: "";

@@ -7,7 +7,7 @@ use crate::core::store::Store;
 use tauri::Manager;
 
 pub fn run() {
-    // Toast notifications are attributed by AppUserModelID — without one,
+    // Toast notifications are attributed by AppUserModelID - without one,
     // Windows credits whatever shell launched us (e.g. "Windows PowerShell").
     #[cfg(windows)]
     {

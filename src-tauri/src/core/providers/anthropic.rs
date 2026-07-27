@@ -105,11 +105,11 @@ pub fn build_body(model: &str, messages: &[Message], tools: &[ToolSpec]) -> Valu
     let mut msgs: Vec<Value> = Vec::new();
     for m in messages {
         if let Some((role, blocks)) = message_blocks(m) {
-            // Anthropic rejects empty content arrays — skip block-less messages.
+            // Anthropic rejects empty content arrays - skip block-less messages.
             if blocks.is_empty() {
                 continue;
             }
-            // Anthropic requires strictly alternating roles — merge consecutive same-role turns.
+            // Anthropic requires strictly alternating roles - merge consecutive same-role turns.
             if let Some(last) = msgs.last_mut() {
                 if last["role"].as_str() == Some(role.as_str()) {
                     if let Some(arr) = last["content"].as_array_mut() {
@@ -238,7 +238,7 @@ impl AnthropicAssembler {
                 out.push(ChatEvent::Done);
             }
             "error" => {
-                // Server-side failure (e.g. overloaded) — ends the stream; no Done after this.
+                // Server-side failure (e.g. overloaded) - ends the stream; no Done after this.
                 self.done_emitted = true;
                 let msg = v["error"]["message"]
                     .as_str()

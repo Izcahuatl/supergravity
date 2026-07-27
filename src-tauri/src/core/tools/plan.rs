@@ -6,7 +6,7 @@ use serde_json::json;
 use super::{Tool, ToolContext};
 
 /// The agent-maintained task plan, rendered as a live checklist in the UI.
-/// The tool itself only validates and echoes — the UI picks the steps up from
+/// The tool itself only validates and echoes - the UI picks the steps up from
 /// the tool-call events/history.
 pub struct UpdatePlanTool;
 
@@ -26,7 +26,7 @@ impl Tool for UpdatePlanTool {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "update_plan".into(),
-            description: "Maintain the visible task plan. For multi-step work: call FIRST with your plan (exactly one step in_progress), call again as steps complete, and mark every step done before your final answer. Always pass the FULL step list — it replaces the previous plan.".into(),
+            description: "Maintain the visible task plan. For multi-step work: call FIRST with your plan (exactly one step in_progress), call again as steps complete, and mark every step done before your final answer. Always pass the FULL step list - it replaces the previous plan.".into(),
             params_schema: json!({
                 "type": "object",
                 "properties": {

@@ -4,7 +4,7 @@ import { makeDropdown } from "./dropdown.js";
 
 const $ = (id) => document.getElementById(id);
 
-// Captured at init — renderSettings is top-level but needs to refresh providers.
+// Captured at init - renderSettings is top-level but needs to refresh providers.
 let refreshProvidersFn = async () => {};
 let selectedProviderId = null;
 
@@ -162,7 +162,7 @@ export function initSettings(_state, refreshProviders) {
     const id = label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || `custom-${Date.now()}`;
     if (state.providers.some((p) => p.id === id)) {
       // Upsert would silently clobber the existing row (including has_key).
-      alert(`A provider with id "${id}" already exists — edit it above instead.`);
+      alert(`A provider with id "${id}" already exists - edit it above instead.`);
       return;
     }
     await api.upsertProvider({
@@ -252,11 +252,11 @@ function renderSettings() {
     },
   });
   slot.appendChild(dd.el);
-  dd.el.classList.add("down"); // top of the settings page — popup opens downward
+  dd.el.classList.add("down"); // top of the settings page - popup opens downward
   renderProviderDetail();
 }
 
-/// One provider's config panel — models, base URL, API key, danger zone.
+/// One provider's config panel - models, base URL, API key, danger zone.
 function renderProviderDetail() {
   const p = state.providers.find((x) => x.id === selectedProviderId);
   const host = $("provider-detail");
@@ -297,7 +297,7 @@ function renderProviderDetail() {
     const txt = document.createElement("span");
     txt.textContent = name;
     mrow.append(cb, txt);
-    mrow.title = "Toggle in picker — right-click to delete";
+    mrow.title = "Toggle in picker - right-click to delete";
     mrow.oncontextmenu = (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -334,7 +334,7 @@ function renderProviderDetail() {
     fetchBtn.onclick = guard(async () => {
       const models = await api.listLocalModels(p.id);
       if (models.length === 0) {
-        alert("No models on the Ollama server — pull one first (ollama pull …).");
+        alert("No models on the Ollama server - pull one first (ollama pull …).");
         return;
       }
       for (const m of models) {
@@ -424,7 +424,7 @@ export function renderWorkspaces() {
     const btn = document.createElement("button");
     btn.textContent = "Remove";
     btn.onclick = guard(async () => {
-      if (!(await confirmDialog(`HEY! You sure you want to delete this project? (${ws.name} — its chats go too, files on disk are kept)`))) return;
+      if (!(await confirmDialog(`HEY! You sure you want to delete this project? (${ws.name} - its chats go too, files on disk are kept)`))) return;
       await api.removeWorkspace(ws.id);
       state.workspaces = await api.listWorkspaces();
       state.conversations.delete(ws.id);

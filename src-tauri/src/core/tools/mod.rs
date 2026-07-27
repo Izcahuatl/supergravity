@@ -88,7 +88,7 @@ fn normalize(path: &Path) -> PathBuf {
 pub fn resolve_in_workspace(root: &Path, p: &str) -> Result<PathBuf> {
     if !root.is_absolute() {
         // A relative root would anchor the sandbox to an unpredictable CWD, and
-        // an empty one would starts_with EVERY path — both must be rejected.
+        // an empty one would starts_with EVERY path - both must be rejected.
         return Err(Error::Tool(
             "workspace root must be an absolute path".into(),
         ));

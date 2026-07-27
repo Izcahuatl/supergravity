@@ -106,7 +106,7 @@ pub struct AgentRequest {
 
 /// Checkpoint sink: snapshots a file's bytes before a mutating tool changes
 /// it, so a later Rewind restores the workspace alongside the history.
-/// Best-effort — backup failures never abort a run.
+/// Best-effort - backup failures never abort a run.
 pub struct BackupCtx {
     pub store: Arc<crate::core::store::Store>,
     pub conversation_id: String,
@@ -139,7 +139,7 @@ impl BackupCtx {
 /// Result of one agent run: the messages produced (persist these even on
 /// failure) plus the error that ended the run, if any.
 pub struct AgentOutcome {
-    /// Messages produced during the run — persist these even when `error` is Some.
+    /// Messages produced during the run - persist these even when `error` is Some.
     pub produced: Vec<Message>,
     /// The failure that ended the run, if any.
     pub error: Option<Error>,
@@ -239,7 +239,7 @@ pub async fn run(req: AgentRequest) -> AgentOutcome {
         }
 
         // Repair: the model wrote its tool call as text instead of using the
-        // function-calling channel — convert it into a real call so the loop
+        // function-calling channel - convert it into a real call so the loop
         // still executes it (weak-model resilience).
         if calls.is_empty() && !text.is_empty() {
             let owned: Vec<String> = req.tools.iter().map(|t| t.spec().name).collect();
@@ -402,7 +402,7 @@ pub async fn run(req: AgentRequest) -> AgentOutcome {
                             b.record(&req.workspace_root, &args_json);
                         }
                     }
-                    // Execute with cancellation — a hung tool (up to 300s shell
+                    // Execute with cancellation - a hung tool (up to 300s shell
                     // timeout) must not ignore Stop.
                     let exec_result = tokio::select! {
                         _ = req.cancel.cancelled() => None,
@@ -517,10 +517,10 @@ pub fn system_prompt(
     };
     let workshop_note = match workshop_root {
         Some(w) => format!(
-            "\nWorkshop: you have a private scratch directory OUTSIDE the workspace at {} — \
+            "\nWorkshop: you have a private scratch directory OUTSIDE the workspace at {} - \
              use it freely for experiments, python scripts, and temp files. It is INSIDE your \
              sandbox: use the normal file tools (write_file, read_file, …) with absolute paths \
-             in it — never the external tools, which are only for paths outside your sandbox. \
+             in it - never the external tools, which are only for paths outside your sandbox. \
              Run scripts there via run_shell (e.g. python).",
             w.display()
         ),
@@ -531,24 +531,24 @@ pub fn system_prompt(
          Workspace root: {}\n\
          Available tools: {}.\n\
          How this works: you call tools by name; their results come back to you as tool-role messages. \
-         Those results are outputs of YOUR tool calls, executed by the Supergravity runtime — \
+         Those results are outputs of YOUR tool calls, executed by the Supergravity runtime - \
          the user does not run tools or type commands themselves. \
          Never describe tool results as something the user did.\n\
          Act with tools, don't just describe: when the user asks you to create, change, run, find, \
-         or read something, make the tool call immediately — never reply with only an explanation \
+         or read something, make the tool call immediately - never reply with only an explanation \
          of what you would do. If a file or command might not exist, try it and handle the error.\n\
-         The ONLY tools that exist are the ones listed above — never invent tools (e.g. no \
+         The ONLY tools that exist are the ones listed above - never invent tools (e.g. no \
          \"create_html_page\", no \"create_file\"). Never write tool-call JSON or XML as plain text; \
          issue tool calls through the function-calling mechanism only. \
          To create or change a file you MUST call write_file with path and content.\n\
          Example of a correct loop: you call run_shell {{\"command\": \"echo hello\"}}; a tool message returns \
-         \"[output of run_shell \\\"echo hello\\\" — exit code 0]\\nhello\"; you then tell the user: \
+         \"[output of run_shell \\\"echo hello\\\" - exit code 0]\\nhello\"; you then tell the user: \
          It printed: hello. The user ran nothing.\n\
          Rules: keep all file access inside the workspace root; read before you modify; \
-         prefer small, targeted changes — for editing an existing file, use edit_file with an exact \
+         prefer small, targeted changes - for editing an existing file, use edit_file with an exact \
          old_string instead of rewriting the whole file with write_file; \
          when a tool returns an error, adapt or explain instead of retrying blindly.\n\
-         Planning: for any task with 2+ steps, maintain the visible plan via update_plan — \
+         Planning: for any task with 2+ steps, maintain the visible plan via update_plan - \
          call it FIRST with your steps (exactly one in_progress), update it as steps complete, \
          and mark every step done before your final summary. Skip it only for trivial one-liners.\n\
          {}{}",
@@ -594,7 +594,7 @@ mod tests {
         }
     }
 
-    /// Test tool that hangs for 30s — cancel must interrupt it mid-execute.
+    /// Test tool that hangs for 30s - cancel must interrupt it mid-execute.
     struct SleepTool;
 
     #[async_trait::async_trait]
@@ -779,7 +779,7 @@ mod tests {
         ];
         let out = truncate_history(h, 100);
         // The first run dropped (note inserted); the latest run survives
-        // intact, tool_call/tool_result pair included — even over budget.
+        // intact, tool_call/tool_result pair included - even over budget.
         assert_eq!(out.len(), 4);
         assert!(matches!(&out[0].parts[0], ContentPart::Text { text } if text.contains("omitted")));
         assert!(matches!(&out[1].parts[0], ContentPart::Text { .. }));

@@ -37,7 +37,7 @@ pub struct MessageRow {
     pub model: Option<String>,
 }
 
-/// SQLite-backed persistence. All methods are synchronous — async callers
+/// SQLite-backed persistence. All methods are synchronous - async callers
 /// (the Tauri bridge) MUST invoke them via `tokio::task::spawn_blocking`
 /// or Tauri's sync-command mechanism, never directly on a runtime worker.
 pub struct Store {
@@ -789,7 +789,7 @@ mod tests {
         s.append_message(&cid, &Message::text(Role::Assistant, "two")).unwrap();
         let rows = s.get_message_rows(&cid).unwrap();
         assert_eq!(rows.len(), 4);
-        // Row ids are stable and increasing — rewind at the second user turn.
+        // Row ids are stable and increasing - rewind at the second user turn.
         assert!(rows[0].id < rows[2].id);
         s.rewind_messages(&cid, rows[2].id).unwrap();
         let rows = s.get_message_rows(&cid).unwrap();

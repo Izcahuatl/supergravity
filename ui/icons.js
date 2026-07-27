@@ -1,5 +1,5 @@
 // Inline SVG icon set (stroke-based, Lucide/Feather style, currentColor).
-// Usage: el.innerHTML = icon('folder') — static known-safe markup only.
+// Usage: el.innerHTML = icon('folder') - static known-safe markup only.
 
 const PATHS = {
   folder:

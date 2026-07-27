@@ -440,7 +440,7 @@ mod tests {
     #[test]
     fn assembler_finish_flushes_pending_tool_calls() {
         // Some OpenAI-compatible servers end tool-call streams with "stop" or
-        // without any finish_reason — buffered calls must not be lost.
+        // without any finish_reason - buffered calls must not be lost.
         let mut a = OpenAiAssembler::default();
         a.push_data(r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"read_file","arguments":"{}"}}]},"finish_reason":"stop"}]}"#);
         let evs = a.finish();

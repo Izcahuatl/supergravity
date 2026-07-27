@@ -24,7 +24,7 @@ impl Tool for ReadFileTool {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "read_file".into(),
-            description: "Read a UTF-8 text file in the workspace. Returns lines with optional 1-based offset and limit. The `path` must be a concrete file path — never a glob pattern.".into(),
+            description: "Read a UTF-8 text file in the workspace. Returns lines with optional 1-based offset and limit. The `path` must be a concrete file path - never a glob pattern.".into(),
             params_schema: json!({
                 "type": "object",
                 "properties": {
@@ -43,7 +43,7 @@ impl Tool for ReadFileTool {
         if let Ok(meta) = std::fs::metadata(&path) {
             if meta.len() > MAX_FILE_READ {
                 return Err(Error::Tool(format!(
-                    "file too large ({} bytes, max {MAX_FILE_READ}): {} — try grep for targeted reads",
+                    "file too large ({} bytes, max {MAX_FILE_READ}): {} - try grep for targeted reads",
                     meta.len(),
                     path.display()
                 )));
@@ -53,7 +53,7 @@ impl Tool for ReadFileTool {
             .map_err(|e| Error::Tool(format!("cannot read {}: {e}", path.display())))?;
         if bytes.len() as u64 > MAX_FILE_READ {
             return Err(Error::Tool(format!(
-                "file too large ({} bytes, max {MAX_FILE_READ}): {} — try grep for targeted reads",
+                "file too large ({} bytes, max {MAX_FILE_READ}): {} - try grep for targeted reads",
                 bytes.len(),
                 path.display()
             )));
@@ -425,7 +425,7 @@ impl Tool for EditFileTool {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "edit_file".into(),
-            description: "Replace an exact string in a file (surgical edit — prefer this over rewriting whole files). old_string must match exactly, including whitespace. By default it must be unique in the file; pass expected_replacements to replace N occurrences.".into(),
+            description: "Replace an exact string in a file (surgical edit - prefer this over rewriting whole files). old_string must match exactly, including whitespace. By default it must be unique in the file; pass expected_replacements to replace N occurrences.".into(),
             params_schema: json!({
                 "type": "object",
                 "properties": {
@@ -463,14 +463,14 @@ impl Tool for EditFileTool {
         }
         if count != expected {
             return Err(Error::Tool(format!(
-                "old_string occurs {count} times in {}, expected {expected} — make it more specific or adjust expected_replacements",
+                "old_string occurs {count} times in {}, expected {expected} - make it more specific or adjust expected_replacements",
                 path.display()
             )));
         }
         let updated = content.replacen(&args.old_string, &args.new_string, expected);
         std::fs::write(&path, updated)?;
         Ok(format!(
-            "[edited {} — replaced {expected} occurrence{}]",
+            "[edited {} - replaced {expected} occurrence{}]",
             path.display(),
             if expected == 1 { "" } else { "s" }
         ))
@@ -759,7 +759,7 @@ mod tests {
     #[tokio::test]
     async fn list_external_dir_rejects_relative_and_lists_absolute() {
         let (dir, ctx) = ctx();
-        // Relative paths are rejected — the tool only takes absolute ones.
+        // Relative paths are rejected - the tool only takes absolute ones.
         assert!(ListExternalDirTool
             .execute(&ctx, r#"{"path": "src"}"#)
             .await

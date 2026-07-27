@@ -129,7 +129,7 @@ impl Tool for GlobTool {
 
     async fn execute(&self, ctx: &ToolContext, args_json: &str) -> Result<String> {
         let args: GlobArgs = serde_json::from_str(args_json)?;
-        // glob::glob passes `..` through literally, which would escape the root —
+        // glob::glob passes `..` through literally, which would escape the root -
         // reject absolute patterns and any ParentDir component up front.
         let pattern_path = std::path::Path::new(&args.pattern);
         if pattern_path.is_absolute()
@@ -173,7 +173,7 @@ impl Tool for GlobTool {
 /// Directories grep never descends into: hidden dirs (.git, .idea, …) and
 /// build/dependency output that swamps results.
 fn is_skipped_dir(entry: &walkdir::DirEntry) -> bool {
-    // The walk root itself (depth 0) is never skipped — its name may
+    // The walk root itself (depth 0) is never skipped - its name may
     // legitimately start with '.' (tempfile's `.tmpXXX`) or be "target".
     if entry.depth() == 0 || !entry.file_type().is_dir() {
         return false;

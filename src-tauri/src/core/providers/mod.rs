@@ -34,8 +34,8 @@ use crate::core::types::ProviderConfig;
 use crate::core::types::ProviderKind;
 
 /// First-run provider presets: sensible defaults with starter model lists.
-/// All user-editable later; model names drift — treat as starting points.
-/// Every preset model starts DISABLED — the user enables what they use.
+/// All user-editable later; model names drift - treat as starting points.
+/// Every preset model starts DISABLED - the user enables what they use.
 pub fn presets() -> Vec<ProviderConfig> {
     let preset = |id: &str, label: &str, kind: ProviderKind, models: &[&str]| ProviderConfig {
         id: id.into(),

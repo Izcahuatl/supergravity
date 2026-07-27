@@ -140,7 +140,7 @@ impl GeminiAssembler {
             Err(_) => return out,
         };
         if let Some(err) = v.get("error").filter(|e| !e.is_null()) {
-            // Server-side failure frame — ends the stream; no Done after this.
+            // Server-side failure frame - ends the stream; no Done after this.
             self.done_emitted = true;
             let msg = err["message"].as_str().unwrap_or("unknown gemini error");
             out.push(ChatEvent::Error(msg.to_string()));
@@ -154,7 +154,7 @@ impl GeminiAssembler {
                             out.push(ChatEvent::TextDelta(t.to_string()));
                         }
                         if let Some(fc) = part.get("functionCall") {
-                            // Unique per call — a per-turn counter would collide
+                            // Unique per call - a per-turn counter would collide
                             // across turns and corrupt id→name history mapping.
                             let id = format!("gemini-{}", uuid::Uuid::new_v4());
                             out.push(ChatEvent::ToolCall {

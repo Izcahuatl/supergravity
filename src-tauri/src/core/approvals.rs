@@ -21,7 +21,7 @@ pub struct ApprovalBroker {
     events: mpsc::Sender<AgentEvent>,
 }
 
-/// Tools that ALWAYS prompt the user, even in Auto mode — they cross the
+/// Tools that ALWAYS prompt the user, even in Auto mode - they cross the
 /// workspace sandbox boundary, so auto-approving them would defeat the point.
 const ALWAYS_ASK: [&str; 3] = ["list_external_dir", "read_external_file", "write_external_file"];
 
@@ -46,7 +46,7 @@ impl ExternalPolicy {
     }
 }
 
-/// True when the call's `path` arg is an ABSOLUTE path inside the Workshop —
+/// True when the call's `path` arg is an ABSOLUTE path inside the Workshop -
 /// workshop file access stays inside the sandbox, so no prompt. Relative
 /// paths anchor to the workspace (ToolContext::resolve contract), so they
 /// follow normal approval rules.
@@ -68,7 +68,7 @@ fn resolves_in_workshop(workshop_root: &Option<std::path::PathBuf>, args_json: &
 fn shell_in_workshop(workshop_root: &Option<std::path::PathBuf>, args_json: &str) -> bool {
     let Some(w) = workshop_root else { return false };
     let args = serde_json::from_str::<serde_json::Value>(args_json).ok();
-    // cwd arg anchored in the Workshop — anything run there is workshop-local.
+    // cwd arg anchored in the Workshop - anything run there is workshop-local.
     if let Some(cwd) = args
         .as_ref()
         .and_then(|v| v.get("cwd"))
@@ -191,7 +191,7 @@ impl ApprovalBroker {
             .await
             .is_err()
         {
-            // Receiver gone — don't leak the pending entry.
+            // Receiver gone - don't leak the pending entry.
             self.pending.lock().unwrap().remove(&request_id);
             return Err(Error::ApprovalClosed);
         }
@@ -228,7 +228,7 @@ mod tests {
         assert!(!broker.should_prompt("run_shell", &format!(r#"{{"command":"python {w}/a.py"}}"#), &shop));
         assert!(!broker.should_prompt("run_shell", &format!(r#"{{"command":"pip install black", "cwd":"{w}"}}"#), &shop));
         // Chained python command does NOT count as a single invocation, but is
-        // still covered if cwd is the workshop — without cwd it prompts.
+        // still covered if cwd is the workshop - without cwd it prompts.
         assert!(broker.should_prompt("run_shell", &format!(r#"{{"command":"python {w}/a.py && echo hi"}}"#), &shop));
         // External tools prompt under the default Ask policy…
         assert!(broker.should_prompt("write_external_file", outside, &shop));

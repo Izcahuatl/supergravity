@@ -273,7 +273,7 @@ function renderWorkedFor(run, calls) {
   const steps = document.createElement("div");
   steps.className = "worked-steps hidden";
   for (const call of calls) {
-    if (call.name === "update_plan") continue; // shown as the plan card instead
+    if (call.name === "update_plan") continue; // lives in the header Task popover, not the flow
     const verb = toolVerb(call.name, call.args_json);
     const failed = call.result?.is_error;
     const step = document.createElement("div");

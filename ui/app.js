@@ -148,7 +148,7 @@ function preferredProvider() {
 }
 
 /// Antigravity-style new-conversation screen: centered composer + project
-/// picker. No conversation exists yet — it's created on the first message.
+/// picker. No conversation exists yet - it's created on the first message.
 export function renderCenterScreen() {
   state.active = null;
   state.activePlan = null;
@@ -258,7 +258,7 @@ function populateCenterModel() {
   centerModelDropdown = makeDropdown({
     value: curProvider ? `${curProvider.label} · ${cur.model}` : "no enabled models",
     groups,
-    emptyNote: groups.length ? "" : "All models off — enable some in ⚙ Settings",
+    emptyNote: groups.length ? "" : "All models off - enable some in ⚙ Settings",
     onSelect: (v) => {
       const [providerId, ...rest] = v.split("/");
       const model = rest.join("/");
@@ -301,7 +301,7 @@ async function transitionCenterToComposer() {
 
   // Only the shell morphs: the ghost's controls fade out right away (their
   // layout doesn't match the real composer's), and the ORIGINAL card hides
-  // instantly — fading the whole center screen would show two cards at once.
+  // instantly - fading the whole center screen would show two cards at once.
   for (const child of ghost.children) {
     child.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 120, fill: "forwards" });
   }
@@ -324,7 +324,7 @@ async function transitionCenterToComposer() {
     /* aborted */
   }
 
-  // Crossfade at the destination — ghost fades out as the real composer fades
+  // Crossfade at the destination - ghost fades out as the real composer fades
   // in, so there's no snap when the ghost is removed.
   const fadeOut = ghost.animate([{ opacity: 1 }, { opacity: 0 }], {
     duration: 140,
@@ -341,7 +341,7 @@ async function transitionCenterToComposer() {
   } catch {
     /* aborted */
   }
-  // WAAPI fill:forwards outranks inline styles — without canceling, the next
+  // WAAPI fill:forwards outranks inline styles - without canceling, the next
   // transition would see this run's opacity:1 fill and show the composer early.
   fadeOut.cancel();
   fadeIn.cancel();
@@ -372,7 +372,7 @@ async function sendFromCenter() {
   }
   const provider = currentCenterModel();
   if (!provider) {
-    alert("No enabled models — enable some in Settings first.");
+    alert("No enabled models - enable some in Settings first.");
     return;
   }
   const id = await api.createConversation(ws.id, "New Conversation", provider.providerId, provider.model);
@@ -411,7 +411,7 @@ function elapsed(ms) {
   return `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`;
 }
 
-// Tick the live run timers in place — no full sidebar re-render per second.
+// Tick the live run timers in place - no full sidebar re-render per second.
 setInterval(() => {
   for (const t of document.querySelectorAll(".conv-time[data-runstart]")) {
     t.textContent = elapsed(Date.now() - Number(t.dataset.runstart));
@@ -466,7 +466,7 @@ export function renderSidebar() {
     rm.title = "Remove workspace (files on disk are kept)";
     rm.onclick = guard(async (e) => {
       e.stopPropagation();
-      if (!(await confirmDialog(`HEY! You sure you want to delete this project? (${ws.name} — its chats go too, files on disk are kept)`))) return;
+      if (!(await confirmDialog(`HEY! You sure you want to delete this project? (${ws.name} - its chats go too, files on disk are kept)`))) return;
       const wasActive = state.active?.workspace_id === ws.id;
       await api.removeWorkspace(ws.id);
       state.workspaces = state.workspaces.filter((w) => w.id !== ws.id);
@@ -676,7 +676,7 @@ export function renderModelPicker() {
   const dd = makeDropdown({
     value: currentLabel,
     groups,
-    emptyNote: anyEnabled ? "" : "All models off — enable some in ⚙ Settings",
+    emptyNote: anyEnabled ? "" : "All models off - enable some in ⚙ Settings",
     onSelect: guard(async (v) => {
       const [providerId, ...rest] = v.split("/");
       const model = rest.join("/");
@@ -690,7 +690,7 @@ export function renderModelPicker() {
   slot.appendChild(dd.el);
 }
 
-// @ file mentions in both composers — registered BEFORE the Enter-to-send
+// @ file mentions in both composers - registered BEFORE the Enter-to-send
 // handlers so an open popup can intercept Enter/Tab/Escape first.
 attachMentions($("input"), () => state.active?.workspace_id);
 attachMentions($("center-input"), () => state.centerWorkspaceId);
@@ -699,7 +699,7 @@ attachMentions($("center-input"), () => state.centerWorkspaceId);
 const SLASH_COMMANDS = [
   {
     name: "auto",
-    desc: "Approvals: Auto — no per-write prompts",
+    desc: "Approvals: Auto - no per-write prompts",
     run: async () => {
       if (!state.active) return;
       await api.setApprovalMode(state.active.id, "auto");
@@ -709,7 +709,7 @@ const SLASH_COMMANDS = [
   },
   {
     name: "manual",
-    desc: "Approvals: Manual — approve every write",
+    desc: "Approvals: Manual - approve every write",
     run: async () => {
       if (!state.active) return;
       await api.setApprovalMode(state.active.id, "manual");
@@ -837,7 +837,7 @@ $("messages").addEventListener("contextmenu", (e) => {
       const convId = state.active.id;
       const text = userBubble.textContent.trim();
       await api.rewindConversation(convId, Number(userBubble.dataset.msgId));
-      // The backend cancels a live agent for this conversation — mirror that.
+      // The backend cancels a live agent for this conversation - mirror that.
       state.running.delete(convId);
       state.runStarted.delete(convId);
       syncSendStop();
@@ -887,13 +887,13 @@ boot().catch((e) => {
 });
 
 // Suppress WebView2's default context menus (page menu AND textbox edit menu)
-// everywhere — our own context menus handle their targets.
+// everywhere - our own context menus handle their targets.
 document.addEventListener("contextmenu", (e) => {
   if (!(e.target instanceof Element)) return;
   e.preventDefault();
 });
 
-// Copy buttons on code blocks (event delegation — buttons are inside .md).
+// Copy buttons on code blocks (event delegation - buttons are inside .md).
 document.addEventListener("click", (e) => {
   const btn = e.target.closest(".code-copy");
   if (!btn) return;
@@ -986,14 +986,14 @@ async function send() {
   bubble.className = "bubble user";
   bubble.textContent = text;
   document.getElementById("messages").appendChild(bubble);
-  // Mark running NOW (the first event may lag) — closes the double-send window.
+  // Mark running NOW (the first event may lag) - closes the double-send window.
   state.running.add(cid);
   state.runStarted.set(cid, Date.now());
   syncSendStop();
   renderSidebar();
   try {
     await api.sendMessage(cid, text);
-    // The bridge may have auto-renamed the conversation on first send — refresh.
+    // The bridge may have auto-renamed the conversation on first send - refresh.
     const convs = await api.listConversations(state.active.workspace_id);
     state.conversations.set(state.active.workspace_id, convs);
     const fresh = convs.find((c) => c.id === cid);

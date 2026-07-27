@@ -40,7 +40,7 @@ pub fn expand(text: &str, workspace_root: &Path) -> String {
 }
 
 /// Read a mention target. Unresolvable/non-file paths return None (the token
-/// stays literal text — e.g. email addresses). Binary/oversized files attach
+/// stays literal text - e.g. email addresses). Binary/oversized files attach
 /// a note instead of failing the send.
 fn read_attachment(root: &Path, rel: &str) -> Option<String> {
     let abs = crate::core::tools::resolve_in_workspace(root, rel).ok()?;
@@ -50,7 +50,7 @@ fn read_attachment(root: &Path, rel: &str) -> Option<String> {
     }
     let bytes = std::fs::read(&abs).ok()?;
     if bytes.contains(&0) {
-        return Some("[binary file — contents not attached]".into());
+        return Some("[binary file - contents not attached]".into());
     }
     if bytes.len() > MAX_ATTACH {
         let mut end = MAX_ATTACH;
@@ -103,7 +103,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("b.bin"), [0u8, 159, 146, 150]).unwrap();
         let out = expand("@b.bin", dir.path());
-        assert!(out.contains("[binary file — contents not attached]"), "{out}");
+        assert!(out.contains("[binary file - contents not attached]"), "{out}");
     }
 
     #[test]

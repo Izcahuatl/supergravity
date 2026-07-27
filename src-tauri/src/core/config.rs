@@ -7,7 +7,7 @@ use std::sync::Mutex;
 const KEYRING_SERVICE: &str = "supergravity";
 
 /// API-key storage. Keys are addressed by provider id.
-/// Implementations are synchronous (OS keychain IPC) — async callers MUST use
+/// Implementations are synchronous (OS keychain IPC) - async callers MUST use
 /// `tokio::task::spawn_blocking` or Tauri's sync-command mechanism.
 pub trait KeyStore: Send + Sync {
     fn get(&self, provider_id: &str) -> Result<Option<String>>;

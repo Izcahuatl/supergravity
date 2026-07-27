@@ -113,7 +113,7 @@ impl OllamaAssembler {
             Err(_) => return out,
         };
         if let Some(err) = v.get("error").and_then(Value::as_str) {
-            // Mid-stream server failure (model OOM, template error) — no Done after this.
+            // Mid-stream server failure (model OOM, template error) - no Done after this.
             self.done_emitted = true;
             out.push(ChatEvent::Error(err.to_string()));
             return out;
@@ -160,7 +160,7 @@ impl OllamaAssembler {
 
 #[async_trait::async_trait]
 impl Provider for OllamaProvider {
-    /// Local models have small contexts — keep history tight or they hard-fail.
+    /// Local models have small contexts - keep history tight or they hard-fail.
     fn history_budget_chars(&self) -> usize {
         24_000
     }

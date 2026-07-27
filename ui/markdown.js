@@ -3,7 +3,7 @@
 
 // Tiny built-in syntax highlighter (no vendored lib). Runs on ESCAPED code, so
 // string regexes match &quot; instead of ". Alternation order gives comments
-// and strings priority — keywords inside them are never re-matched.
+// and strings priority - keywords inside them are never re-matched.
 const HIGHLIGHT_LANGS = {
   js: {
     comment: String.raw`\/\/[^\n]*|\/\*[\s\S]*?\*\/`,
@@ -92,13 +92,13 @@ export function renderMarkdown(src) {
       for (const p of paragraphs) {
         if (!p.trim()) continue;
         // Line-by-line: consecutive list lines form a <ul>; pipe lines form a
-        // <table>; other lines form paragraphs — mixed blocks keep everything.
+        // <table>; other lines form paragraphs - mixed blocks keep everything.
         let listItems = [];
         let para = [];
         let tableRows = [];
         const flushPara = () => {
           if (para.length) {
-            // Single newlines become <br> — LLM output uses them structurally.
+            // Single newlines become <br> - LLM output uses them structurally.
             html += `<p>${para.map((l) => inline(l)).join("<br>")}</p>`;
             para = [];
           }

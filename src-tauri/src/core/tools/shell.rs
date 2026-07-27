@@ -31,7 +31,7 @@ impl Tool for RunShellTool {
                 "properties": {
                     "command": {"type": "string"},
                     "timeout_secs": {"type": "integer", "description": "Default 60, max 300"},
-                    "cwd": {"type": "string", "description": "Working directory — workspace-relative, or the Workshop's absolute path"}
+                    "cwd": {"type": "string", "description": "Working directory - workspace-relative, or the Workshop's absolute path"}
                 },
                 "required": ["command"]
             }),
@@ -66,7 +66,7 @@ impl Tool for RunShellTool {
             .current_dir(&workdir)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            // NOTE: kill_on_drop kills the direct child only — on timeout,
+            // NOTE: kill_on_drop kills the direct child only - on timeout,
             // grandchildren (e.g. ping, build subprocesses) keep running.
             // Process-tree kill (Job Objects / killpg) is a hardening follow-up.
             .kill_on_drop(true)
@@ -88,9 +88,9 @@ impl Tool for RunShellTool {
                 }
                 let truncated = truncate_output(&out, MAX_OUTPUT);
                 if !output.status.success() {
-                    // Non-zero exit is a tool failure — the model sees an error result.
+                    // Non-zero exit is a tool failure - the model sees an error result.
                     return Err(Error::Tool(format!(
-                        "[run_shell \"{}\" failed — exit code {}]\n{}",
+                        "[run_shell \"{}\" failed - exit code {}]\n{}",
                         args.command,
                         output.status.code().unwrap_or(-1),
                         truncated
@@ -99,9 +99,9 @@ impl Tool for RunShellTool {
                 // Provenance header: tool results must be unmistakably the
                 // agent's own execution, not something the user did.
                 if truncated.is_empty() {
-                    Ok(format!("[output of run_shell \"{}\" — exit code 0, no output]", args.command))
+                    Ok(format!("[output of run_shell \"{}\" - exit code 0, no output]", args.command))
                 } else {
-                    Ok(format!("[output of run_shell \"{}\" — exit code 0]\n{}", args.command, truncated))
+                    Ok(format!("[output of run_shell \"{}\" - exit code 0]\n{}", args.command, truncated))
                 }
             }
             Ok(Err(e)) => Err(e.into()),

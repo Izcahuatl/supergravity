@@ -128,7 +128,7 @@ export function handleAgentEvent(payload) {
     case "text_delta": {
       const raw = (streamBuffers.get(conversation_id) || "") + event.data;
       streamBuffers.set(conversation_id, raw);
-      // The bubble may have been detached by a history re-render — recreate it.
+      // The bubble may have been detached by a history re-render - recreate it.
       if (!currentTextBubble || !currentTextBubble.isConnected) {
         currentTextBubble = addBubble("assistant");
         currentTextBubble.classList.add("streaming");
@@ -171,7 +171,7 @@ export function handleAgentEvent(payload) {
       const existing = document.querySelector(`[data-call-id="${event.data.tool_call_id}"]`);
       if (existing) {
         existing.classList.add("approval-card");
-        // Approving blind is useless — show the args that need a decision.
+        // Approving blind is useless - show the args that need a decision.
         existing.querySelector(".tool-args")?.classList.remove("hidden");
         if (APPROVAL_TEXT[event.data.name]) {
           existing.querySelector(".tool-verb").textContent = APPROVAL_TEXT[event.data.name];
@@ -209,7 +209,7 @@ export function handleAgentEvent(payload) {
       streamBuffers.delete(conversation_id);
       pendingApprovals.delete(conversation_id);
       syncSendStop();
-      // Persisted history lands just after message_done — refresh shortly after
+      // Persisted history lands just after message_done - refresh shortly after
       // so the worked-for line and change cards render from the store.
       setTimeout(() => refreshMessages(), 400);
       break;

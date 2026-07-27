@@ -25,7 +25,7 @@ pub async fn pump_events(
     }
 }
 
-/// Removes the agents-map entry on drop — including panic paths. Dropping the
+/// Removes the agents-map entry on drop - including panic paths. Dropping the
 /// entry also drops the last broker `Sender` clone, which lets the pump end.
 struct AgentGuard {
     agents: Arc<Mutex<HashMap<String, RunningAgent>>>,
@@ -133,7 +133,7 @@ impl AgentTaskParts {
             block(move || s.last_message_id(&c)).await?
         };
         // Per-conversation scratch dir ("Workshop") under the app data dir.
-        // Production only — tests use a relative config path and skip this.
+        // Production only - tests use a relative config path and skip this.
         let workshop_root = if state.config_path.is_absolute() {
             state.config_path.parent().and_then(|p| {
                 let d = p.join("workshops").join(&conv.id);
@@ -168,7 +168,7 @@ impl AgentTaskParts {
 }
 
 /// The spawned task body: pump events, run the loop, persist produced messages
-/// (even on failure — partial runs stay resumable), free the agents-map entry.
+/// (even on failure - partial runs stay resumable), free the agents-map entry.
 pub async fn run_agent_task(
     parts: AgentTaskParts,
     emit: impl Fn(serde_json::Value) + Send + 'static,
@@ -235,7 +235,7 @@ pub async fn run_agent_task(
         .await;
     }
     // Drop the map entry (and with it the last broker Sender clone) BEFORE
-    // awaiting the pump — otherwise the channel never closes and this task
+    // awaiting the pump - otherwise the channel never closes and this task
     // deadlocks. (A new run may start while the old pump drains its last
     // buffered events; that window is acceptable.)
     drop(guard);

@@ -319,7 +319,7 @@ pub async fn rewind_conversation_impl(
                     }
                     std::fs::write(&abs, bytes)?;
                 }
-                // The file did not exist before this turn — remove it.
+                // The file did not exist before this turn - remove it.
                 None => {
                     if abs.exists() {
                         std::fs::remove_file(&abs)?;
@@ -901,7 +901,7 @@ mod tests {
         .unwrap()
         .unwrap();
         assert_eq!(p.new_, "one\ntwo\nX");
-        // edit_file ok — and nothing written to disk
+        // edit_file ok - and nothing written to disk
         let p = preview_tool_diff_impl(
             &state,
             cid.clone(),
