@@ -14,7 +14,9 @@ use tokio::sync::{mpsc, oneshot};
 pub struct ApprovalBroker {
     mode: RwLock<ApprovalMode>,
     external_policy: RwLock<ExternalPolicy>,
-    workshop_python_no_ask: RwLock<bool>,
+    workshop_full_access: RwLock<bool>,
+    project_files_no_ask: RwLock<bool>,
+    project_shell_no_ask: RwLock<bool>,
     pending: Mutex<HashMap<String, oneshot::Sender<bool>>>,
     events: mpsc::Sender<AgentEvent>,
 }
@@ -60,14 +62,29 @@ fn resolves_in_workshop(workshop_root: &Option<std::path::PathBuf>, args_json: &
     crate::core::tools::resolve_in_workspace(w, &p).is_ok()
 }
 
-/// True for a single `python <workshop>/script.py` invocation — no chaining,
-/// pipes, or redirection, and the script lives in the Workshop.
-fn is_workshop_python(workshop_root: &Option<std::path::PathBuf>, args_json: &str) -> bool {
+/// True when the command is clearly workshop-scoped: an explicit `cwd` arg
+/// inside the Workshop, or a single `python <workshop>/script.py` invocation
+/// (no chaining, pipes, or redirection).
+fn shell_in_workshop(workshop_root: &Option<std::path::PathBuf>, args_json: &str) -> bool {
     let Some(w) = workshop_root else { return false };
-    let cmd = serde_json::from_str::<serde_json::Value>(args_json)
-        .ok()
-        .and_then(|v| v.get("command")?.as_str().map(str::to_string));
-    let Some(cmd) = cmd else { return false };
+    let args = serde_json::from_str::<serde_json::Value>(args_json).ok();
+    // cwd arg anchored in the Workshop — anything run there is workshop-local.
+    if let Some(cwd) = args
+        .as_ref()
+        .and_then(|v| v.get("cwd"))
+        .and_then(|c| c.as_str())
+    {
+        if std::path::Path::new(cwd).is_absolute()
+            && crate::core::tools::resolve_in_workspace(w, cwd).is_ok()
+        {
+            return true;
+        }
+    }
+    let Some(cmd) = args
+        .and_then(|v| v.get("command")?.as_str().map(str::to_string))
+    else {
+        return false;
+    };
     let trimmed = cmd.trim_start();
     if !["python ", "python3 ", "py "].iter().any(|p| trimmed.starts_with(p)) {
         return false;
@@ -87,7 +104,9 @@ impl ApprovalBroker {
         ApprovalBroker {
             mode: RwLock::new(mode),
             external_policy: RwLock::new(ExternalPolicy::Ask),
-            workshop_python_no_ask: RwLock::new(true),
+            workshop_full_access: RwLock::new(true),
+            project_files_no_ask: RwLock::new(false),
+            project_shell_no_ask: RwLock::new(false),
             pending: Mutex::new(HashMap::new()),
             events,
         }
@@ -102,37 +121,54 @@ impl ApprovalBroker {
     }
 
     /// Permission policy for this run (from app config).
-    pub fn set_permissions(&self, external_policy: ExternalPolicy, workshop_python_no_ask: bool) {
+    pub fn set_permissions(
+        &self,
+        external_policy: ExternalPolicy,
+        workshop_full_access: bool,
+        project_files_no_ask: bool,
+        project_shell_no_ask: bool,
+    ) {
         *self.external_policy.write().unwrap() = external_policy;
-        *self.workshop_python_no_ask.write().unwrap() = workshop_python_no_ask;
+        *self.workshop_full_access.write().unwrap() = workshop_full_access;
+        *self.project_files_no_ask.write().unwrap() = project_files_no_ask;
+        *self.project_shell_no_ask.write().unwrap() = project_shell_no_ask;
     }
 
     pub fn external_policy(&self) -> ExternalPolicy {
         *self.external_policy.read().unwrap()
     }
 
-    /// Should this tool call prompt the user in Manual mode? Workshop-scoped
-    /// access (files, or a single python invocation) never prompts; external
-    /// tools follow the external policy. (Auto mode short-circuits in `check`.)
+    /// Should this tool call prompt the user in Manual mode? With Full
+    /// Workshop Access, anything scoped to the Workshop (files, or a shell
+    /// command with cwd inside it) runs free; external tools follow the
+    /// external policy; everything else follows the per-type project policies.
+    /// (Auto mode short-circuits in `check`.)
     pub fn should_prompt(
         &self,
         name: &str,
         args_json: &str,
         workshop_root: &Option<std::path::PathBuf>,
     ) -> bool {
-        if resolves_in_workshop(workshop_root, args_json) {
-            return false;
-        }
-        if *self.workshop_python_no_ask.read().unwrap()
-            && name == "run_shell"
-            && is_workshop_python(workshop_root, args_json)
-        {
-            return false;
-        }
+        let in_workshop = resolves_in_workshop(workshop_root, args_json);
         if ALWAYS_ASK.contains(&name) {
+            if *self.workshop_full_access.read().unwrap() && in_workshop {
+                return false;
+            }
             return *self.external_policy.read().unwrap() == ExternalPolicy::Ask;
         }
-        true
+        if *self.workshop_full_access.read().unwrap() {
+            if in_workshop {
+                return false;
+            }
+            if name == "run_shell" && shell_in_workshop(workshop_root, args_json) {
+                return false;
+            }
+        }
+        match name {
+            "run_shell" => !*self.project_shell_no_ask.read().unwrap(),
+            "write_file" | "edit_file" => !*self.project_files_no_ask.read().unwrap(),
+            _ => true,
+        }
     }
 
     /// Returns true when the call may proceed. Mode is read per check, so a
@@ -187,24 +223,29 @@ mod tests {
         let shop = Some(std::path::PathBuf::from(if cfg!(windows) { "C:\\shop" } else { "/shop" }));
         let w = shop.as_ref().unwrap().to_string_lossy().replace('\\', "/");
         let outside = if cfg!(windows) { r#"{"path":"D:\\x"}"# } else { r#"{"path":"/etc/x"}"# };
-        // Workshop file paths never prompt (even via external tools).
+        // Full workshop access (default): files, python, and cwd-scoped shell run free.
         assert!(!broker.should_prompt("write_external_file", &format!(r#"{{"path":"{w}/a.py"}}"#), &shop));
-        // Single workshop python invocation → no prompt.
         assert!(!broker.should_prompt("run_shell", &format!(r#"{{"command":"python {w}/a.py"}}"#), &shop));
-        // Chained commands still prompt.
+        assert!(!broker.should_prompt("run_shell", &format!(r#"{{"command":"pip install black", "cwd":"{w}"}}"#), &shop));
+        // Chained python command does NOT count as a single invocation, but is
+        // still covered if cwd is the workshop — without cwd it prompts.
         assert!(broker.should_prompt("run_shell", &format!(r#"{{"command":"python {w}/a.py && echo hi"}}"#), &shop));
-        // Non-workshop python prompts.
-        assert!(broker.should_prompt("run_shell", r#"{"command":"python other.py"}"#, &shop));
         // External tools prompt under the default Ask policy…
         assert!(broker.should_prompt("write_external_file", outside, &shop));
         // …and not under Allow.
-        broker.set_permissions(ExternalPolicy::Allow, true);
+        broker.set_permissions(ExternalPolicy::Allow, true, false, false);
         assert!(!broker.should_prompt("write_external_file", outside, &shop));
-        // Normal workspace writes still prompt in Manual.
+        // Project per-type policies.
+        broker.set_permissions(ExternalPolicy::Ask, true, false, false);
         assert!(broker.should_prompt("write_file", r#"{"path":"src/a"}"#, &shop));
-        // Workshop python toggle off → prompts again.
-        broker.set_permissions(ExternalPolicy::Ask, false);
+        assert!(broker.should_prompt("run_shell", r#"{"command":"cargo build"}"#, &shop));
+        broker.set_permissions(ExternalPolicy::Ask, true, true, true);
+        assert!(!broker.should_prompt("write_file", r#"{"path":"src/a"}"#, &shop));
+        assert!(!broker.should_prompt("run_shell", r#"{"command":"cargo build"}"#, &shop));
+        // Full workshop access OFF: workshop paths follow project rules.
+        broker.set_permissions(ExternalPolicy::Ask, false, false, false);
         assert!(broker.should_prompt("run_shell", &format!(r#"{{"command":"python {w}/a.py"}}"#), &shop));
+        assert!(broker.should_prompt("write_file", &format!(r#"{{"path":"{w}/a.py"}}"#), &shop));
     }
 
     #[tokio::test]

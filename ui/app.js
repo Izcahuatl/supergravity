@@ -21,7 +21,9 @@ export const state = {
     defaultApprovalMode: "manual",
     notifications: true,
     externalPolicy: "ask",
-    workshopPythonNoAsk: true,
+    workshopFullAccess: true,
+    projectFilesNoAsk: false,
+    projectShellNoAsk: false,
   }, // app config (Agent + Permissions settings)
   activePlan: null, // latest update_plan steps for the active conversation
 };
@@ -49,7 +51,9 @@ async function boot() {
     defaultApprovalMode: initial.config.default_approval_mode ?? "manual",
     notifications: initial.config.notifications_enabled ?? true,
     externalPolicy: initial.config.external_policy ?? "ask",
-    workshopPythonNoAsk: initial.config.workshop_python_no_ask ?? true,
+    workshopFullAccess: initial.config.workshop_full_access ?? true,
+    projectFilesNoAsk: initial.config.project_files_no_ask ?? false,
+    projectShellNoAsk: initial.config.project_shell_no_ask ?? false,
   };
   // Static icon buttons.
   $("ws-add").innerHTML = icon("plus", 13);

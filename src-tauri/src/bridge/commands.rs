@@ -513,7 +513,9 @@ pub async fn set_app_prefs_impl(
     default_approval_mode: Option<String>,
     notifications_enabled: Option<bool>,
     external_policy: Option<String>,
-    workshop_python_no_ask: Option<bool>,
+    workshop_full_access: Option<bool>,
+    project_files_no_ask: Option<bool>,
+    project_shell_no_ask: Option<bool>,
 ) -> Result<()> {
     let cfg = {
         let mut guard = state.ui_config.lock().unwrap();
@@ -526,8 +528,14 @@ pub async fn set_app_prefs_impl(
         if let Some(p) = external_policy {
             guard.external_policy = Some(p);
         }
-        if let Some(w) = workshop_python_no_ask {
-            guard.workshop_python_no_ask = Some(w);
+        if let Some(w) = workshop_full_access {
+            guard.workshop_full_access = Some(w);
+        }
+        if let Some(f) = project_files_no_ask {
+            guard.project_files_no_ask = Some(f);
+        }
+        if let Some(s) = project_shell_no_ask {
+            guard.project_shell_no_ask = Some(s);
         }
         guard.clone()
     };
@@ -758,14 +766,18 @@ pub async fn set_app_prefs(
     default_approval_mode: Option<String>,
     notifications_enabled: Option<bool>,
     external_policy: Option<String>,
-    workshop_python_no_ask: Option<bool>,
+    workshop_full_access: Option<bool>,
+    project_files_no_ask: Option<bool>,
+    project_shell_no_ask: Option<bool>,
 ) -> std::result::Result<(), String> {
     set_app_prefs_impl(
         &state,
         default_approval_mode,
         notifications_enabled,
         external_policy,
-        workshop_python_no_ask,
+        workshop_full_access,
+        project_files_no_ask,
+        project_shell_no_ask,
     )
     .await
     .map_err(estr)

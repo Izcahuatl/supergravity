@@ -112,7 +112,9 @@ impl AgentTaskParts {
                 crate::core::approvals::ExternalPolicy::from_config(
                     cfg.external_policy.as_deref(),
                 ),
-                cfg.workshop_python_no_ask.unwrap_or(true),
+                cfg.workshop_full_access.unwrap_or(true),
+                cfg.project_files_no_ask.unwrap_or(false),
+                cfg.project_shell_no_ask.unwrap_or(false),
             );
         }
         let ws = {

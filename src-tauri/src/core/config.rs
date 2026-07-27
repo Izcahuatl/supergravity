@@ -96,8 +96,12 @@ pub struct AppConfig {
     pub notifications_enabled: Option<bool>,
     /// External (sandbox-crossing) tool policy: "ask" | "allow" | "block" (None = ask).
     pub external_policy: Option<String>,
-    /// Run workshop python without prompting (None = on).
-    pub workshop_python_no_ask: Option<bool>,
+    /// Full Workshop access: anything scoped to the Workshop runs free (None = on).
+    pub workshop_full_access: Option<bool>,
+    /// Project file writes without prompting (None = ask).
+    pub project_files_no_ask: Option<bool>,
+    /// Project shell commands without prompting (None = ask).
+    pub project_shell_no_ask: Option<bool>,
 }
 
 impl AppConfig {
@@ -156,7 +160,9 @@ mod tests {
             default_approval_mode: Some("auto".into()),
             notifications_enabled: Some(false),
             external_policy: Some("ask".into()),
-            workshop_python_no_ask: Some(true),
+            workshop_full_access: Some(true),
+            project_files_no_ask: Some(false),
+            project_shell_no_ask: Some(false),
         };
         cfg.save(&path).unwrap();
         let back = AppConfig::load(&path).unwrap();

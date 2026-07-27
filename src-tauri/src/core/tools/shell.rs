@@ -17,6 +17,7 @@ pub struct RunShellTool;
 struct RunShellArgs {
     command: String,
     timeout_secs: Option<u64>,
+    cwd: Option<String>,
 }
 
 #[async_trait::async_trait]
@@ -24,12 +25,13 @@ impl Tool for RunShellTool {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "run_shell".into(),
-            description: "Run a shell command in the workspace root (cmd /C on Windows, sh -c elsewhere). Captures stdout+stderr.".into(),
+            description: "Run a shell command (cmd /C on Windows, sh -c elsewhere). Captures stdout+stderr. cwd defaults to the workspace root; pass the Workshop's absolute path to run there.".into(),
             params_schema: json!({
                 "type": "object",
                 "properties": {
                     "command": {"type": "string"},
-                    "timeout_secs": {"type": "integer", "description": "Default 60, max 300"}
+                    "timeout_secs": {"type": "integer", "description": "Default 60, max 300"},
+                    "cwd": {"type": "string", "description": "Working directory — workspace-relative, or the Workshop's absolute path"}
                 },
                 "required": ["command"]
             }),
@@ -42,6 +44,10 @@ impl Tool for RunShellTool {
 
     async fn execute(&self, ctx: &ToolContext, args_json: &str) -> Result<String> {
         let args: RunShellArgs = serde_json::from_str(args_json)?;
+        let workdir = match &args.cwd {
+            Some(c) => ctx.resolve(c)?,
+            None => ctx.workspace_root.clone(),
+        };
         let timeout = Duration::from_secs(
             args.timeout_secs
                 .unwrap_or(DEFAULT_TIMEOUT_SECS)
@@ -57,7 +63,7 @@ impl Tool for RunShellTool {
             c
         };
         let child = cmd
-            .current_dir(&ctx.workspace_root)
+            .current_dir(&workdir)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             // NOTE: kill_on_drop kills the direct child only — on timeout,
@@ -66,10 +72,7 @@ impl Tool for RunShellTool {
             .kill_on_drop(true)
             .spawn()
             .map_err(|e| {
-                Error::Tool(format!(
-                    "cannot spawn in workspace root {}: {e}",
-                    ctx.workspace_root.display()
-                ))
+                Error::Tool(format!("cannot spawn in {}: {e}", workdir.display()))
             })?;
 
         match tokio::time::timeout(timeout, child.wait_with_output()).await {

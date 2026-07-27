@@ -90,9 +90,23 @@
             <div class="agent-row">
               <div class="agent-row-text">
                 <div class="agent-row-title">Default Approval Mode</div>
-                <div class="dim">Controls whether file writes and shell commands inside the project need your approval before running.</div>
+                <div class="dim">Baseline for new conversations: approve everything, or allow everything in the project.</div>
               </div>
               <span id="pref-approval-slot"></span>
+            </div>
+            <div class="agent-row">
+              <div class="agent-row-text">
+                <div class="agent-row-title">File Writes</div>
+                <div class="dim">Write and edit files inside the project without asking, even in Manual mode.</div>
+              </div>
+              <span id="pref-files-slot"></span>
+            </div>
+            <div class="agent-row">
+              <div class="agent-row-text">
+                <div class="agent-row-title">Shell Commands</div>
+                <div class="dim">Run shell commands inside the project without asking, even in Manual mode.</div>
+              </div>
+              <span id="pref-shell-slot"></span>
             </div>
             <h4>External Permissions</h4>
             <div class="agent-row">
@@ -105,8 +119,8 @@
             <h4>Workshop Permissions</h4>
             <div class="agent-row">
               <div class="agent-row-text">
-                <div class="agent-row-title">Workshop Python</div>
-                <div class="dim">Run single python scripts from the conversation's Workshop without asking. File access inside the Workshop is always allowed.</div>
+                <div class="agent-row-title">Full Workshop Access</div>
+                <div class="dim">Anything scoped to the conversation's Workshop runs free — files, python, and shell commands with a Workshop cwd.</div>
               </div>
               <span id="pref-workshop-slot"></span>
             </div>

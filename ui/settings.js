@@ -102,7 +102,7 @@ export function initSettings(_state, refreshProviders) {
     onPick: guard(async (label) => {
       const mode = label.toLowerCase();
       state.prefs.defaultApprovalMode = mode;
-      await api.setAppPrefs(mode, null, null, null);
+      await api.setAppPrefs({ defaultApprovalMode: mode });
     }),
   });
   makePrefDropdown($("pref-notif-slot"), {
@@ -110,7 +110,26 @@ export function initSettings(_state, refreshProviders) {
     options: ["On", "Off"],
     onPick: guard(async (label) => {
       state.prefs.notifications = label === "On";
-      await api.setAppPrefs(null, state.prefs.notifications, null, null);
+      await api.setAppPrefs({ notificationsEnabled: state.prefs.notifications });
+    }),
+  });
+  const ASK_ALLOW = ["Ask every time", "Allow without asking"];
+  makePrefDropdown($("pref-files-slot"), {
+    value: state.prefs.projectFilesNoAsk ? ASK_ALLOW[1] : ASK_ALLOW[0],
+    options: ASK_ALLOW,
+    groupLabel: "File writes",
+    onPick: guard(async (label) => {
+      state.prefs.projectFilesNoAsk = label === ASK_ALLOW[1];
+      await api.setAppPrefs({ projectFilesNoAsk: state.prefs.projectFilesNoAsk });
+    }),
+  });
+  makePrefDropdown($("pref-shell-slot"), {
+    value: state.prefs.projectShellNoAsk ? ASK_ALLOW[1] : ASK_ALLOW[0],
+    options: ASK_ALLOW,
+    groupLabel: "Shell commands",
+    onPick: guard(async (label) => {
+      state.prefs.projectShellNoAsk = label === ASK_ALLOW[1];
+      await api.setAppPrefs({ projectShellNoAsk: state.prefs.projectShellNoAsk });
     }),
   });
   const EXT_LABELS = { ask: "Always ask", allow: "Allow without asking", block: "Block external tools" };
@@ -121,16 +140,16 @@ export function initSettings(_state, refreshProviders) {
     groupLabel: "External policy",
     onPick: guard(async (label) => {
       state.prefs.externalPolicy = EXT_VALUES[label] ?? "ask";
-      await api.setAppPrefs(null, null, state.prefs.externalPolicy, null);
+      await api.setAppPrefs({ externalPolicy: state.prefs.externalPolicy });
     }),
   });
   makePrefDropdown($("pref-workshop-slot"), {
-    value: state.prefs.workshopPythonNoAsk ? "Allowed" : "Ask every time",
-    options: ["Allowed", "Ask every time"],
-    groupLabel: "Workshop python",
+    value: state.prefs.workshopFullAccess ? "Full access" : "Project rules",
+    options: ["Full access", "Project rules"],
+    groupLabel: "Workshop",
     onPick: guard(async (label) => {
-      state.prefs.workshopPythonNoAsk = label === "Allowed";
-      await api.setAppPrefs(null, null, null, state.prefs.workshopPythonNoAsk);
+      state.prefs.workshopFullAccess = label === "Full access";
+      await api.setAppPrefs({ workshopFullAccess: state.prefs.workshopFullAccess });
     }),
   });
 
