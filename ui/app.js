@@ -30,6 +30,45 @@ export const state = {
 
 const $ = (id) => document.getElementById(id);
 
+/// In-app confirm dialog (no native dialogs). Resolves true on Delete.
+export function confirmDialog(text, { confirmLabel = "Delete" } = {}) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "confirm-overlay";
+    const card = document.createElement("div");
+    card.className = "confirm-card";
+    const msg = document.createElement("div");
+    msg.className = "confirm-msg";
+    msg.textContent = text;
+    const row = document.createElement("div");
+    row.className = "confirm-actions";
+    const cancel = document.createElement("button");
+    cancel.textContent = "Cancel";
+    const del = document.createElement("button");
+    del.className = "danger";
+    del.textContent = confirmLabel;
+    row.append(cancel, del);
+    card.append(msg, row);
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+    const done = (v) => {
+      document.removeEventListener("keydown", onKey, true);
+      overlay.remove();
+      resolve(v);
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") done(false);
+    };
+    cancel.onclick = () => done(false);
+    del.onclick = () => done(true);
+    overlay.onclick = (e) => {
+      if (e.target === overlay) done(false);
+    };
+    document.addEventListener("keydown", onKey, true);
+    del.focus();
+  });
+}
+
 // Wrap async UI handlers: surface failures instead of silent unhandled rejections.
 export const guard = (fn) => (e) => fn(e).catch((err) => {
   console.error(err);
@@ -427,7 +466,7 @@ export function renderSidebar() {
     rm.title = "Remove workspace (files on disk are kept)";
     rm.onclick = guard(async (e) => {
       e.stopPropagation();
-      if (!confirm(`Remove workspace "${ws.name}" and all its conversations?\nFiles on disk are kept.`)) return;
+      if (!(await confirmDialog(`HEY! You sure you want to delete this project? (${ws.name} — its chats go too, files on disk are kept)`))) return;
       const wasActive = state.active?.workspace_id === ws.id;
       await api.removeWorkspace(ws.id);
       state.workspaces = state.workspaces.filter((w) => w.id !== ws.id);
@@ -490,7 +529,7 @@ export function renderSidebar() {
       del.title = "Delete conversation";
       del.onclick = guard(async (e) => {
         e.stopPropagation();
-        if (!confirm(`Delete "${conv.title}"?`)) return;
+        if (!(await confirmDialog(`HEY! You sure you want to delete this chat? ("${conv.title}")`))) return;
         await api.deleteConversation(conv.id);
         state.conversations.set(ws.id, await api.listConversations(ws.id));
         if (state.active?.id === conv.id) {

@@ -555,6 +555,34 @@ details.think pre {
   100% { transform: translateX(0); }
 }
 
+/* --- in-app confirm dialog --- */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.12s ease-out;
+}
+.confirm-card {
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  padding: 18px;
+  max-width: 380px;
+  animation: popIn 0.14s ease-out;
+}
+.confirm-msg { font-size: 14px; line-height: 1.5; margin-bottom: 16px; }
+.confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.confirm-actions .danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.confirm-actions .danger:hover { background: rgba(229, 83, 75, 0.14); }
+
 /* --- settings provider picker + key row --- */
 .sp-picker-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 .sp-picker-row .dropdown-trigger { min-width: 240px; }

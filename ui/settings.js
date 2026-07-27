@@ -1,5 +1,5 @@
 import { api } from "./api.js";
-import { state, renderSidebar, renderCenterScreen, guard } from "./app.js";
+import { state, renderSidebar, renderCenterScreen, guard, confirmDialog } from "./app.js";
 import { makeDropdown } from "./dropdown.js";
 
 const $ = (id) => document.getElementById(id);
@@ -424,7 +424,7 @@ export function renderWorkspaces() {
     const btn = document.createElement("button");
     btn.textContent = "Remove";
     btn.onclick = guard(async () => {
-      if (!confirm(`Remove workspace "${ws.name}" and ALL its conversations?`)) return;
+      if (!(await confirmDialog(`HEY! You sure you want to delete this project? (${ws.name} — its chats go too, files on disk are kept)`))) return;
       await api.removeWorkspace(ws.id);
       state.workspaces = await api.listWorkspaces();
       state.conversations.delete(ws.id);
