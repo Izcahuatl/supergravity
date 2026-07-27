@@ -261,12 +261,30 @@ async function transitionCenterToComposer() {
   const anim = ghost.animate(
     [
       { transform: "translate(0px, 0px)", width: `${start.width}px`, height: `${start.height}px`, opacity: 1 },
-      { transform: `translate(${dx}px, ${dy}px)`, width: `${end.width}px`, height: `${end.height}px`, opacity: 0.35 },
+      { transform: `translate(${dx}px, ${dy}px)`, width: `${end.width}px`, height: `${end.height}px`, opacity: 1 },
     ],
     { duration: 340, easing: "cubic-bezier(.22,.8,.26,1)", fill: "forwards" }
   );
   try {
     await anim.finished;
+  } catch {
+    /* aborted */
+  }
+
+  // Crossfade at the destination — ghost fades out as the real composer fades
+  // in, so there's no snap when the ghost is removed.
+  const fadeOut = ghost.animate([{ opacity: 1 }, { opacity: 0 }], {
+    duration: 140,
+    easing: "ease-out",
+    fill: "forwards",
+  });
+  const fadeIn = composer.animate([{ opacity: 0 }, { opacity: 1 }], {
+    duration: 140,
+    easing: "ease-out",
+    fill: "forwards",
+  });
+  try {
+    await Promise.all([fadeOut.finished, fadeIn.finished]);
   } catch {
     /* aborted */
   }
