@@ -1,6 +1,6 @@
-import { state, refreshMessages, syncSendStop } from "./app.js";
+import { state, refreshMessages, syncSendStop, renderTaskButton } from "./app.js";
 import { api } from "./api.js";
-import { addBubble, renderTextPart, renderToolCallCard, renderPlanCard, parsePlanSteps, prettyArgs } from "./render.js";
+import { addBubble, renderTextPart, renderToolCallCard, parsePlanSteps, prettyArgs } from "./render.js";
 import { lineDiff, renderDiffRows } from "./diffview.js";
 import { icon } from "./icons.js";
 
@@ -13,7 +13,7 @@ const streamBuffers = new Map(); // conversation_id -> raw streamed text
 export const pendingApprovals = new Map(); // conversation_id -> {request_id, tool_call_id, name, args_json}
 
 let currentTextBubble = null;
-let currentPlanCard = null;
+let planLineInserted = false; // one "Task set!" note per run
 
 // --- unfocused-window notifications ---
 function convTitle(cid) {
@@ -141,19 +141,20 @@ export function handleAgentEvent(payload) {
     }
     case "tool_call_proposed": {
       currentTextBubble = null;
-      // Plan updates render as the Task checklist, not a tool row.
+      // Plan updates feed the header "Active Task" indicator; the chat flow
+      // gets a single pointer note per run instead of a card.
       if (event.data.name === "update_plan") {
-        const steps = parsePlanSteps(event.data.args_json);
-        const fresh = renderPlanCard(steps);
-        if (currentPlanCard?.isConnected) {
-          currentPlanCard.replaceWith(fresh);
-        } else {
+        state.activePlan = parsePlanSteps(event.data.args_json);
+        renderTaskButton();
+        if (!planLineInserted) {
+          planLineInserted = true;
+          const line = document.createElement("div");
+          line.className = "plan-note dim";
+          line.textContent = "Task set! Check the top right to see progress.";
           const wrap = addBubble("assistant");
           wrap.classList.add("tool-wrap");
-          wrap.appendChild(fresh);
+          wrap.appendChild(line);
         }
-        currentPlanCard = fresh;
-        currentPlanCard.dataset.callId = event.data.tool_call_id;
         break;
       }
       const card = renderToolCallCard({ name: event.data.name, args_json: event.data.args_json });
@@ -281,5 +282,5 @@ export function resumeLiveState(conversationId) {
 
 export function resetEventState() {
   currentTextBubble = null;
-  currentPlanCard = null;
+  planLineInserted = false;
 }

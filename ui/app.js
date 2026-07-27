@@ -1,5 +1,5 @@
 import { api } from "./api.js";
-import { renderMessages } from "./render.js";
+import { renderMessages, renderPlanCard, parsePlanSteps } from "./render.js";
 import { initSettings } from "./settings.js";
 import { handleAgentEvent, resetEventState, resumeLiveState } from "./events.js";
 import { initReview } from "./diffview.js";
@@ -18,6 +18,7 @@ export const state = {
   lastWorkspaceId: null, // last active workspace (default for new conversations)
   centerWorkspaceId: null, // workspace picked in the center-screen project dropdown
   prefs: { defaultApprovalMode: "manual", notifications: true }, // app config (Agent settings)
+  activePlan: null, // latest update_plan steps for the active conversation
 };
 
 const $ = (id) => document.getElementById(id);
@@ -99,6 +100,8 @@ function preferredProvider() {
 /// picker. No conversation exists yet — it's created on the first message.
 export function renderCenterScreen() {
   state.active = null;
+  state.activePlan = null;
+  renderTaskButton();
   $("chat-title").textContent = "New conversation";
   $("chat-ws").textContent = "";
   $("composer").classList.add("hidden");
@@ -492,6 +495,16 @@ export async function selectConversation(conv) {
   const msgs = await api.getMessages(conv.id);
   // A newer click may have switched away while the fetch was in flight.
   if (state.active?.id !== conv.id) return;
+  // Restore the latest plan for the header indicator.
+  let planSteps = null;
+  for (const m of msgs) {
+    if (m.role !== "assistant") continue;
+    for (const p of m.parts) {
+      if (p.type === "tool_call" && p.name === "update_plan") planSteps = parsePlanSteps(p.args_json);
+    }
+  }
+  state.activePlan = planSteps;
+  renderTaskButton();
   // Fade the pane swap instead of a hard cut.
   msgEl.style.transition = "none";
   msgEl.style.opacity = "0";
@@ -508,6 +521,43 @@ export async function selectConversation(conv) {
 export function renderModeToggle(mode) {
   $("mode-toggle").textContent = mode === "auto" ? "Auto" : "Manual";
 }
+
+/// Header "Active Task" indicator: progress count, click opens the checklist.
+export function renderTaskButton() {
+  const btn = $("task-btn");
+  const pop = $("task-popover");
+  const steps = state.activePlan;
+  if (!steps || !steps.length) {
+    btn.classList.add("hidden");
+    pop.classList.add("hidden");
+    return;
+  }
+  const done = steps.filter((s) => s.status === "done").length;
+  btn.innerHTML = `${icon("list", 13)}<span>Task ${done}/${steps.length}</span>`;
+  btn.classList.remove("hidden");
+  if (!pop.classList.contains("hidden")) {
+    pop.innerHTML = "";
+    pop.appendChild(renderPlanCard(steps));
+  }
+}
+
+$("task-btn").onclick = (e) => {
+  e.stopPropagation();
+  const pop = $("task-popover");
+  if (!pop.classList.contains("hidden")) {
+    pop.classList.add("hidden");
+    return;
+  }
+  pop.innerHTML = "";
+  pop.appendChild(renderPlanCard(state.activePlan ?? []));
+  pop.classList.remove("hidden");
+};
+document.addEventListener("click", (e) => {
+  const pop = $("task-popover");
+  if (!pop.classList.contains("hidden") && !pop.contains(e.target) && e.target !== $("task-btn")) {
+    pop.classList.add("hidden");
+  }
+});
 
 export function renderModelPicker() {
   const slot = $("model-slot");

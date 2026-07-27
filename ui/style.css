@@ -851,6 +851,46 @@ button:active { transform: scale(0.97); }
 .tok-c { color: #6a737d; font-style: italic; }
 .tok-n { color: #f78c6c; }
 
+/* --- header Active Task indicator + popover --- */
+#task-btn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(139, 92, 246, 0.1);
+  animation: fadeSlideIn 0.2s ease-out;
+}
+#task-btn:hover { background: rgba(139, 92, 246, 0.2); }
+#chat-header { position: relative; }
+#task-popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 12px;
+  z-index: 40;
+  width: 320px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: #232329;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  padding: 6px;
+  animation: popIn 0.13s ease-out;
+}
+#task-popover .plan-card { border: none; background: transparent; margin: 0; }
+
+/* in-chat pointer note where a plan was set */
+.plan-note {
+  font-size: 12px;
+  font-style: italic;
+  padding: 4px 0;
+}
+
 /* --- approval diff preview --- */
 .diff-toggle {
   font-size: 12px;

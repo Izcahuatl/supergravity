@@ -278,10 +278,12 @@ export function renderMessages(msgs, convId) {
       if (p.type === "text") renderUserText(userBubble, p.text);
     }
     const calls = collectCalls(run);
-    // Latest update_plan in this run renders as the Task checklist.
-    const planCalls = calls.filter((c) => c.name === "update_plan");
-    if (planCalls.length) {
-      el.appendChild(renderPlanCard(parsePlanSteps(planCalls[planCalls.length - 1].args_json)));
+    // Runs that used a plan get a pointer note (checklist lives top right).
+    if (calls.some((c) => c.name === "update_plan")) {
+      const line = document.createElement("div");
+      line.className = "plan-note dim";
+      line.textContent = "Task set! Check the top right to see progress.";
+      el.appendChild(line);
     }
     if (calls.length) {
       el.appendChild(renderWorkedFor(run, calls));
