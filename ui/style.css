@@ -536,6 +536,23 @@ details.think pre {
 #settings-panel { animation: popIn 0.16s ease-out; }
 .provider-row { animation: fadeSlideIn 0.18s ease-out; }
 
+/* --- center screen error nudge (replaces native alerts) --- */
+.center-error {
+  color: var(--warn);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  animation: nudgeShake 0.35s ease-out;
+}
+@keyframes nudgeShake {
+  0% { opacity: 0; transform: translateX(0); }
+  20% { opacity: 1; transform: translateX(-5px); }
+  40% { transform: translateX(5px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(3px); }
+  100% { transform: translateX(0); }
+}
+
 /* --- settings provider picker + key row --- */
 .sp-picker-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 .sp-picker-row .dropdown-trigger { min-width: 240px; }

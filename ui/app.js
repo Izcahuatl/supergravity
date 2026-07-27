@@ -109,6 +109,7 @@ export function renderCenterScreen() {
   state.active = null;
   state.activePlan = null;
   renderTaskButton();
+  $("center-error").classList.add("hidden");
   $("chat-title").textContent = "New conversation";
   $("chat-ws").textContent = "";
   $("composer").classList.add("hidden");
@@ -281,7 +282,15 @@ async function sendFromCenter() {
   if (!text) return;
   const ws = state.workspaces.find((w) => w.id === state.centerWorkspaceId);
   if (!ws) {
-    alert("Pick a project — or browse for a new one — first.");
+    // In-app nudge instead of a native alert dialog.
+    const err = $("center-error");
+    err.classList.remove("hidden");
+    err.style.animation = "none";
+    requestAnimationFrame(() => {
+      err.style.animation = "";
+    });
+    clearTimeout(err._t);
+    err._t = setTimeout(() => err.classList.add("hidden"), 4000);
     return;
   }
   const provider = currentCenterModel();
