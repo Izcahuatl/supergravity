@@ -126,6 +126,16 @@ export function renderMarkdown(src) {
           tableRows = [];
         };
         for (const line of p.split("\n")) {
+          const h = line.match(/^(#{1,6})\s+(.*)$/);
+          if (h) {
+            flushPara();
+            flushList();
+            flushTable();
+            // Shift levels down so headings stay modest inside a chat bubble.
+            const level = Math.min(h[1].length + 2, 6);
+            html += `<h${level}>${inline(h[2])}</h${level}>`;
+            continue;
+          }
           const m = line.match(/^\s*[-*] (.*)$/);
           if (m) {
             flushPara();
