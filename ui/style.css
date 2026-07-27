@@ -43,6 +43,8 @@ html, body, #app {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  height: 42px;
+  box-sizing: border-box;
   padding: 10px 16px;
   border-bottom: 1px solid var(--border);
   color: var(--text-dim);
@@ -856,9 +858,11 @@ button:active { transform: scale(0.97); }
   margin-left: auto;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  padding: 4px 10px;
+  gap: 5px;
+  font-size: 11px;
+  padding: 2px 9px;
+  height: 22px;
+  box-sizing: border-box;
   border-radius: 999px;
   color: var(--accent);
   border-color: var(--accent);
