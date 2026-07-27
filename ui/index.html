@@ -69,6 +69,7 @@
           <h2>Settings</h2>
           <button class="settings-nav-item active" data-section="providers">Providers</button>
           <button class="settings-nav-item" data-section="agent">Agent</button>
+          <button class="settings-nav-item" data-section="permissions">Permissions</button>
           <button class="settings-nav-item" data-section="workspaces">Workspaces</button>
         </nav>
         <div id="settings-content">
@@ -76,17 +77,37 @@
             <h3>Agent</h3>
             <div class="agent-row">
               <div class="agent-row-text">
-                <div class="agent-row-title">Default Approval Mode</div>
-                <div class="dim">Controls whether file writes and shell commands need your approval before running.</div>
-              </div>
-              <span id="pref-approval-slot"></span>
-            </div>
-            <div class="agent-row">
-              <div class="agent-row-text">
                 <div class="agent-row-title">Notifications</div>
                 <div class="dim">Toast and taskbar flash when a run finishes or an approval is waiting, while the window is unfocused.</div>
               </div>
               <span id="pref-notif-slot"></span>
+            </div>
+          </section>
+          <section id="section-permissions" class="hidden">
+            <h3>Permissions</h3>
+            <h4>Project Permissions</h4>
+            <div class="agent-row">
+              <div class="agent-row-text">
+                <div class="agent-row-title">Default Approval Mode</div>
+                <div class="dim">Controls whether file writes and shell commands inside the project need your approval before running.</div>
+              </div>
+              <span id="pref-approval-slot"></span>
+            </div>
+            <h4>External Permissions</h4>
+            <div class="agent-row">
+              <div class="agent-row-text">
+                <div class="agent-row-title">External File Access</div>
+                <div class="dim">Controls whether the agent may list, read, and write files outside the project and its Workshop.</div>
+              </div>
+              <span id="pref-external-slot"></span>
+            </div>
+            <h4>Workshop Permissions</h4>
+            <div class="agent-row">
+              <div class="agent-row-text">
+                <div class="agent-row-title">Workshop Python</div>
+                <div class="dim">Run single python scripts from the conversation's Workshop without asking. File access inside the Workshop is always allowed.</div>
+              </div>
+              <span id="pref-workshop-slot"></span>
             </div>
           </section>
           <section id="section-providers">

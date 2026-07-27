@@ -94,6 +94,10 @@ pub struct AppConfig {
     pub default_approval_mode: Option<String>,
     /// Toast/flash notifications while unfocused (None = on).
     pub notifications_enabled: Option<bool>,
+    /// External (sandbox-crossing) tool policy: "ask" | "allow" | "block" (None = ask).
+    pub external_policy: Option<String>,
+    /// Run workshop python without prompting (None = on).
+    pub workshop_python_no_ask: Option<bool>,
 }
 
 impl AppConfig {
@@ -151,6 +155,8 @@ mod tests {
             last_conversation_id: Some("c1".into()),
             default_approval_mode: Some("auto".into()),
             notifications_enabled: Some(false),
+            external_policy: Some("ask".into()),
+            workshop_python_no_ask: Some(true),
         };
         cfg.save(&path).unwrap();
         let back = AppConfig::load(&path).unwrap();

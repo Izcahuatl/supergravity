@@ -89,20 +89,20 @@ export function initSettings(_state, refreshProviders) {
   for (const btn of document.querySelectorAll(".settings-nav-item")) {
     btn.onclick = () => {
       document.querySelectorAll(".settings-nav-item").forEach((b) => b.classList.toggle("active", b === btn));
-      for (const sec of ["providers", "agent", "workspaces"]) {
+      for (const sec of ["providers", "agent", "permissions", "workspaces"]) {
         $(`section-${sec}`).classList.toggle("hidden", btn.dataset.section !== sec);
       }
     };
   }
 
-  // Agent prefs: AG-style rows with a dropdown on the right.
+  // Prefs: AG-style rows with a dropdown on the right.
   makePrefDropdown($("pref-approval-slot"), {
     value: state.prefs.defaultApprovalMode === "auto" ? "Auto" : "Manual",
     options: ["Manual", "Auto"],
     onPick: guard(async (label) => {
       const mode = label.toLowerCase();
       state.prefs.defaultApprovalMode = mode;
-      await api.setAppPrefs(mode, null);
+      await api.setAppPrefs(mode, null, null, null);
     }),
   });
   makePrefDropdown($("pref-notif-slot"), {
@@ -110,7 +110,27 @@ export function initSettings(_state, refreshProviders) {
     options: ["On", "Off"],
     onPick: guard(async (label) => {
       state.prefs.notifications = label === "On";
-      await api.setAppPrefs(null, state.prefs.notifications);
+      await api.setAppPrefs(null, state.prefs.notifications, null, null);
+    }),
+  });
+  const EXT_LABELS = { ask: "Always ask", allow: "Allow without asking", block: "Block external tools" };
+  const EXT_VALUES = Object.fromEntries(Object.entries(EXT_LABELS).map(([k, v]) => [v, k]));
+  makePrefDropdown($("pref-external-slot"), {
+    value: EXT_LABELS[state.prefs.externalPolicy] ?? EXT_LABELS.ask,
+    options: Object.values(EXT_LABELS),
+    groupLabel: "External policy",
+    onPick: guard(async (label) => {
+      state.prefs.externalPolicy = EXT_VALUES[label] ?? "ask";
+      await api.setAppPrefs(null, null, state.prefs.externalPolicy, null);
+    }),
+  });
+  makePrefDropdown($("pref-workshop-slot"), {
+    value: state.prefs.workshopPythonNoAsk ? "Allowed" : "Ask every time",
+    options: ["Allowed", "Ask every time"],
+    groupLabel: "Workshop python",
+    onPick: guard(async (label) => {
+      state.prefs.workshopPythonNoAsk = label === "Allowed";
+      await api.setAppPrefs(null, null, null, state.prefs.workshopPythonNoAsk);
     }),
   });
 

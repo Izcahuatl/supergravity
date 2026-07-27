@@ -17,7 +17,12 @@ export const state = {
   showAll: new Set(), // workspace_ids with expanded conversation lists
   lastWorkspaceId: null, // last active workspace (default for new conversations)
   centerWorkspaceId: null, // workspace picked in the center-screen project dropdown
-  prefs: { defaultApprovalMode: "manual", notifications: true }, // app config (Agent settings)
+  prefs: {
+    defaultApprovalMode: "manual",
+    notifications: true,
+    externalPolicy: "ask",
+    workshopPythonNoAsk: true,
+  }, // app config (Agent + Permissions settings)
   activePlan: null, // latest update_plan steps for the active conversation
 };
 
@@ -43,6 +48,8 @@ async function boot() {
   state.prefs = {
     defaultApprovalMode: initial.config.default_approval_mode ?? "manual",
     notifications: initial.config.notifications_enabled ?? true,
+    externalPolicy: initial.config.external_policy ?? "ask",
+    workshopPythonNoAsk: initial.config.workshop_python_no_ask ?? true,
   };
   // Static icon buttons.
   $("ws-add").innerHTML = icon("plus", 13);

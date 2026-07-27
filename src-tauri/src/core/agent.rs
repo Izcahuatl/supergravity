@@ -38,17 +38,6 @@ pub fn detect_text_tool_call(text: &str, tool_names: &[&str]) -> Option<(String,
     None
 }
 
-/// True when the call's `path` arg resolves inside the Workshop — external
-/// tools used on the Workshop stay inside the sandbox, so no external prompt.
-fn resolves_in_workshop(workshop_root: &Option<PathBuf>, args_json: &str) -> bool {
-    let Some(w) = workshop_root else { return false };
-    let path = serde_json::from_str::<serde_json::Value>(args_json)
-        .ok()
-        .and_then(|v| v.get("path")?.as_str().map(str::to_string));
-    let Some(p) = path else { return false };
-    crate::core::tools::resolve_in_workspace(w, &p).is_ok()
-}
-
 pub const DEFAULT_MAX_ITERATIONS: usize = 50;
 
 /// Rough per-message size (~4 chars/token) for history budgeting.
@@ -343,10 +332,13 @@ pub async fn run(req: AgentRequest) -> AgentOutcome {
                     }
                 }
                 Some(t) => {
-                    // External tools aimed at a path inside the Workshop are
-                    // still inside the sandbox — skip the external prompt.
-                    let sandboxed = resolves_in_workshop(&req.workshop_root, &args_json);
-                    if t.needs_approval() && !sandboxed {
+                    // Workshop paths and workshop python may skip the prompt;
+                    // external tools follow the configured policy.
+                    if t.needs_approval()
+                        && req
+                            .approvals
+                            .should_prompt(&name, &args_json, &req.workshop_root)
+                    {
                         // Cancel must interrupt the approval wait, not just iterations.
                         let decision = tokio::select! {
                             _ = req.cancel.cancelled() => None,

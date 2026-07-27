@@ -105,6 +105,16 @@ impl AgentTaskParts {
         events_rx: mpsc::Receiver<AgentEvent>,
     ) -> Result<Self> {
         broker.set_mode(conv.approval_mode);
+        // Permission policy from app config (Permissions section in Settings).
+        {
+            let cfg = state.ui_config.lock().unwrap();
+            broker.set_permissions(
+                crate::core::approvals::ExternalPolicy::from_config(
+                    cfg.external_policy.as_deref(),
+                ),
+                cfg.workshop_python_no_ask.unwrap_or(true),
+            );
+        }
         let ws = {
             let s = state.store.clone();
             let w = conv.workspace_id.clone();
@@ -173,12 +183,25 @@ pub async fn run_agent_task(
     // Captured before AgentRequest moves the fields out (used for stamping).
     let stamp_pid = parts.provider_id.clone();
     let stamp_model = parts.model.clone();
+    // Block policy: external tools are not even offered to the model.
+    let tools: Vec<Box<dyn crate::core::tools::Tool>> =
+        if parts.broker.external_policy() == crate::core::approvals::ExternalPolicy::Block {
+            default_tools()
+                .into_iter()
+                .filter(|t| {
+                    !["list_external_dir", "read_external_file", "write_external_file"]
+                        .contains(&t.spec().name.as_str())
+                })
+                .collect()
+        } else {
+            default_tools()
+        };
     let outcome = agent::run(AgentRequest {
         workspace_root: parts.workspace_root,
         provider: parts.provider,
         model: parts.model,
         history: parts.history,
-        tools: default_tools(),
+        tools,
         approvals: parts.broker,
         events: parts.events_tx,
         cancel: parts.cancel,
