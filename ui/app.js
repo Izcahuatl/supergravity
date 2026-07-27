@@ -110,6 +110,9 @@ export function renderCenterScreen() {
   state.activePlan = null;
   renderTaskButton();
   $("center-error").classList.add("hidden");
+  // In case a morph left the card hidden (aborted transitions).
+  const card = $("center-screen").querySelector(".center-composer");
+  if (card) card.style.visibility = "";
   $("chat-title").textContent = "New conversation";
   $("chat-ws").textContent = "";
   $("composer").classList.add("hidden");
@@ -300,6 +303,7 @@ async function transitionCenterToComposer() {
   fadeIn.cancel();
   anim.cancel();
   ghost.remove();
+  card.style.visibility = ""; // restore for the next time the center screen shows
   center.classList.add("hidden");
   center.style.opacity = "";
   center.style.transition = "";
