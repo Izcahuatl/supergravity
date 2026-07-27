@@ -37,5 +37,7 @@ export const api = {
   deleteApiKey: (providerId) => invoke("delete_api_key", { providerId }),
   listLocalModels: (providerId) => invoke("list_local_models", { providerId }),
   pickFolder: () => window.__TAURI__.dialog.open({ directory: true }),
+  setAppPrefs: (defaultApprovalMode, notificationsEnabled) =>
+    invoke("set_app_prefs", { defaultApprovalMode, notificationsEnabled }),
   onAgentEvent: (handler) => listen("agent-event", (e) => handler(e.payload)),
 };

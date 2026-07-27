@@ -90,6 +90,10 @@ impl KeyStore for MemKeyStore {
 pub struct AppConfig {
     pub last_workspace_id: Option<String>,
     pub last_conversation_id: Option<String>,
+    /// Default approval mode for NEW conversations ("auto" | "manual"; None = manual).
+    pub default_approval_mode: Option<String>,
+    /// Toast/flash notifications while unfocused (None = on).
+    pub notifications_enabled: Option<bool>,
 }
 
 impl AppConfig {
@@ -145,6 +149,8 @@ mod tests {
         let cfg = AppConfig {
             last_workspace_id: Some("w1".into()),
             last_conversation_id: Some("c1".into()),
+            default_approval_mode: Some("auto".into()),
+            notifications_enabled: Some(false),
         };
         cfg.save(&path).unwrap();
         let back = AppConfig::load(&path).unwrap();

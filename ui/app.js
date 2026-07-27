@@ -17,6 +17,7 @@ export const state = {
   showAll: new Set(), // workspace_ids with expanded conversation lists
   lastWorkspaceId: null, // last active workspace (default for new conversations)
   centerWorkspaceId: null, // workspace picked in the center-screen project dropdown
+  prefs: { defaultApprovalMode: "manual", notifications: true }, // app config (Agent settings)
   streaming: false,
 };
 
@@ -38,6 +39,25 @@ async function boot() {
   renderSidebar();
   initSettings(state, refreshProviders);
   initReview();
+  // App preferences (Agent section in Settings).
+  state.prefs = {
+    defaultApprovalMode: initial.config.default_approval_mode ?? "manual",
+    notifications: initial.config.notifications_enabled ?? true,
+  };
+  // Static icon buttons.
+  $("ws-add").innerHTML = icon("plus", 13);
+  $("center-attach").innerHTML = icon("plus", 14);
+  $("ws-add").onclick = guard(async () => {
+    await addWorkspaceFromPicker();
+  });
+  $("center-attach").onclick = () => {
+    const ta = $("center-input");
+    const pos = ta.selectionStart ?? ta.value.length;
+    ta.value = `${ta.value.slice(0, pos)}@${ta.value.slice(pos)}`;
+    ta.setSelectionRange(pos + 1, pos + 1);
+    ta.dispatchEvent(new Event("input")); // opens the mention popup
+    ta.focus();
+  };
   // Restore last conversation if it still exists.
   let restored = false;
   if (initial.config.last_conversation_id) {
@@ -121,15 +141,7 @@ function populateCenterProject() {
     ],
     onSelect: guard(async (v) => {
       if (v === "__new__") {
-        const path = await api.pickFolder();
-        if (!path) return;
-        const name = path.split(/[\\/]/).filter(Boolean).pop() || "project";
-        const id = await api.addWorkspace(name, path);
-        state.workspaces = await api.listWorkspaces();
-        if (!state.conversations.has(id)) state.conversations.set(id, await api.listConversations(id));
-        state.lastWorkspaceId = id;
-        renderSidebar();
-        populateCenterProject();
+        if (await addWorkspaceFromPicker()) populateCenterProject();
         return;
       }
       state.centerWorkspaceId = v;
@@ -139,10 +151,66 @@ function populateCenterProject() {
   });
   slot.appendChild(centerDropdown.el);
   centerDropdown.el.classList.add("down"); // popup opens downward here (mid-screen)
+  populateCenterModel();
+}
+
+/// Pick a workspace folder via the OS dialog and register it (shared by the
+/// center dropdown's "New project" and the sidebar's Projects + button).
+async function addWorkspaceFromPicker() {
+  const path = await api.pickFolder();
+  if (!path) return null;
+  const name = path.split(/[\\/]/).filter(Boolean).pop() || "project";
+  const id = await api.addWorkspace(name, path);
+  state.workspaces = await api.listWorkspaces();
+  if (!state.conversations.has(id)) state.conversations.set(id, await api.listConversations(id));
+  state.lastWorkspaceId = id;
+  renderSidebar();
+  return id;
+}
+
+// Model chosen in the center composer: { providerId, model } or null (auto).
+let centerModel = null;
+let centerModelDropdown = null;
+
+function currentCenterModel() {
+  if (centerModel && state.providers.some((p) => p.id === centerModel.providerId && firstEnabledModel(p) === centerModel.model)) {
+    return centerModel;
+  }
   const p = preferredProvider();
-  $("center-model").textContent = p
-    ? `${p.label} · ${firstEnabledModel(p)}`
-    : "no enabled models — open ⚙ Settings";
+  return p ? { providerId: p.id, model: firstEnabledModel(p) } : null;
+}
+
+function populateCenterModel() {
+  const slot = $("center-model-slot");
+  slot.innerHTML = "";
+  const groups = [];
+  for (const p of state.providers) {
+    const enabled = p.models.filter((m) => !(p.disabled_models ?? []).includes(m));
+    if (!enabled.length) continue;
+    groups.push({
+      label: p.label,
+      options: enabled.map((m) => ({
+        value: `${p.id}/${m}`,
+        label: m,
+        current: currentCenterModel()?.providerId === p.id && currentCenterModel()?.model === m,
+      })),
+    });
+  }
+  const cur = currentCenterModel();
+  const curProvider = cur && state.providers.find((p) => p.id === cur.providerId);
+  centerModelDropdown = makeDropdown({
+    value: curProvider ? `${curProvider.label} · ${cur.model}` : "no enabled models",
+    groups,
+    emptyNote: groups.length ? "" : "All models off — enable some in ⚙ Settings",
+    onSelect: (v) => {
+      const [providerId, ...rest] = v.split("/");
+      const model = rest.join("/");
+      centerModel = { providerId, model };
+      const p = state.providers.find((x) => x.id === providerId);
+      centerModelDropdown.setValue(p ? `${p.label} · ${model}` : model);
+    },
+  });
+  slot.appendChild(centerModelDropdown.el);
 }
 
 /// FLIP morph: the center composer travels to the bottom chat composer
@@ -207,12 +275,12 @@ async function sendFromCenter() {
     alert("Pick a project — or browse for a new one — first.");
     return;
   }
-  const provider = preferredProvider();
+  const provider = currentCenterModel();
   if (!provider) {
     alert("No enabled models — enable some in Settings first.");
     return;
   }
-  const id = await api.createConversation(ws.id, "New Conversation", provider.id, firstEnabledModel(provider));
+  const id = await api.createConversation(ws.id, "New Conversation", provider.providerId, provider.model);
   state.conversations.set(ws.id, await api.listConversations(ws.id));
   renderSidebar();
   const conv = state.conversations.get(ws.id).find((c) => c.id === id);

@@ -98,13 +98,15 @@ export function handleAgentEvent(payload) {
 
   // Notify when the window is unfocused: toast + flash on completion,
   // toast + flash + beep when an approval is waiting on the user.
-  if (event.kind === "approval_requested") {
-    toast("Agent needs your approval", convTitle(conversation_id));
-    notifyUser(true);
-    beep();
-  } else if (event.kind === "message_done") {
-    toast("Agent finished", convTitle(conversation_id));
-    notifyUser(false);
+  if (state.prefs.notifications) {
+    if (event.kind === "approval_requested") {
+      toast("Agent needs your approval", convTitle(conversation_id));
+      notifyUser(true);
+      beep();
+    } else if (event.kind === "message_done") {
+      toast("Agent finished", convTitle(conversation_id));
+      notifyUser(false);
+    }
   }
 
   // Non-active conversations: track state only (no DOM).

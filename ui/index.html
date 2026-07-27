@@ -11,6 +11,10 @@
       <aside id="sidebar">
         <button id="new-conversation">+ New Conversation</button>
         <input id="conv-search" type="text" placeholder="Search conversations" autocomplete="off" />
+        <div class="projects-head dim">
+          <span>Projects</span>
+          <button id="ws-add" title="Add project folder"></button>
+        </div>
         <div id="workspace-list"></div>
         <div class="sidebar-footer">
           <button id="open-settings"><svg class="icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg> Settings</button>
@@ -32,7 +36,8 @@
                 <div class="center-composer">
                   <textarea id="center-input" rows="4" placeholder="Ask anything, @ to mention, / for actions"></textarea>
                   <div id="composer-bar">
-                    <span id="center-model" class="dim"></span>
+                    <button id="center-attach" class="icon-btn ghost" title="Attach a file (@)"></button>
+                    <span id="center-model-slot"></span>
                     <button id="center-send" class="icon-btn" title="Send"></button>
                   </div>
                 </div>
@@ -62,9 +67,27 @@
           <button id="close-settings">← Back</button>
           <h2>Settings</h2>
           <button class="settings-nav-item active" data-section="providers">Providers</button>
+          <button class="settings-nav-item" data-section="agent">Agent</button>
           <button class="settings-nav-item" data-section="workspaces">Workspaces</button>
         </nav>
         <div id="settings-content">
+          <section id="section-agent" class="hidden">
+            <h3>Agent</h3>
+            <div class="agent-row">
+              <div class="agent-row-text">
+                <div class="agent-row-title">Default Approval Mode</div>
+                <div class="dim">Controls whether file writes and shell commands need your approval before running.</div>
+              </div>
+              <span id="pref-approval-slot"></span>
+            </div>
+            <div class="agent-row">
+              <div class="agent-row-text">
+                <div class="agent-row-title">Notifications</div>
+                <div class="dim">Toast and taskbar flash when a run finishes or an approval is waiting, while the window is unfocused.</div>
+              </div>
+              <span id="pref-notif-slot"></span>
+            </div>
+          </section>
           <section id="section-providers">
             <h3>Providers</h3>
             <div class="sp-picker-row">

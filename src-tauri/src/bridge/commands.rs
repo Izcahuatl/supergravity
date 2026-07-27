@@ -68,15 +68,19 @@ pub async fn create_conversation_impl(
     provider_id: String,
     model: String,
 ) -> Result<String> {
+    let mode = match state
+        .ui_config
+        .lock()
+        .unwrap()
+        .default_approval_mode
+        .as_deref()
+    {
+        Some("auto") => crate::core::types::ApprovalMode::Auto,
+        _ => crate::core::types::ApprovalMode::Manual,
+    };
     let s = state.store.clone();
     block(move || {
-        s.create_conversation(
-            &workspace_id,
-            &title,
-            &provider_id,
-            &model,
-            crate::core::types::ApprovalMode::Manual,
-        )
+        s.create_conversation(&workspace_id, &title, &provider_id, &model, mode)
     })
     .await
 }
@@ -497,6 +501,28 @@ pub async fn set_ui_state_impl(
         .map_err(|e| Error::Tool(format!("task join: {e}")))?
 }
 
+/// Merge-only update of app preferences (None leaves the field unchanged).
+pub async fn set_app_prefs_impl(
+    state: &AppState,
+    default_approval_mode: Option<String>,
+    notifications_enabled: Option<bool>,
+) -> Result<()> {
+    let cfg = {
+        let mut guard = state.ui_config.lock().unwrap();
+        if let Some(m) = default_approval_mode {
+            guard.default_approval_mode = Some(m);
+        }
+        if let Some(n) = notifications_enabled {
+            guard.notifications_enabled = Some(n);
+        }
+        guard.clone()
+    };
+    let path = state.config_path.clone();
+    tauri::async_runtime::spawn_blocking(move || cfg.save(&path))
+        .await
+        .map_err(|e| Error::Tool(format!("task join: {e}")))?
+}
+
 #[tauri::command]
 pub async fn list_workspaces(
     state: tauri::State<'_, AppState>,
@@ -708,6 +734,17 @@ pub async fn set_ui_state(
     last_conversation_id: Option<String>,
 ) -> std::result::Result<(), String> {
     set_ui_state_impl(&state, last_workspace_id, last_conversation_id)
+        .await
+        .map_err(estr)
+}
+
+#[tauri::command]
+pub async fn set_app_prefs(
+    state: tauri::State<'_, AppState>,
+    default_approval_mode: Option<String>,
+    notifications_enabled: Option<bool>,
+) -> std::result::Result<(), String> {
+    set_app_prefs_impl(&state, default_approval_mode, notifications_enabled)
         .await
         .map_err(estr)
 }

@@ -57,6 +57,7 @@ pub fn run() {
             commands::list_local_models,
             commands::get_initial_state,
             commands::set_ui_state,
+            commands::set_app_prefs,
             agent_runner::send_message,
             agent_runner::cancel_agent,
             agent_runner::resolve_approval,

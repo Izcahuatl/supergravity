@@ -30,6 +30,23 @@ async function saveProvider(p, row) {
   flash._t = setTimeout(() => flash.classList.remove("show"), 1200);
 }
 
+/// Small dropdown for AG-style settings rows (control on the right side).
+function makePrefDropdown(host, { value, options, groupLabel = "Options", onPick }) {
+  const dd = makeDropdown({
+    value,
+    groups: [
+      { label: groupLabel, options: options.map((o) => ({ value: o, label: o, current: o === value })) },
+    ],
+    onSelect: (v) => {
+      dd.setValue(v);
+      onPick(v);
+    },
+  });
+  host.innerHTML = "";
+  host.appendChild(dd.el);
+  dd.el.classList.add("down");
+}
+
 export function initSettings(_state, refreshProviders) {
   refreshProvidersFn = refreshProviders;
   $("open-settings").onclick = () => {
@@ -42,10 +59,30 @@ export function initSettings(_state, refreshProviders) {
   for (const btn of document.querySelectorAll(".settings-nav-item")) {
     btn.onclick = () => {
       document.querySelectorAll(".settings-nav-item").forEach((b) => b.classList.toggle("active", b === btn));
-      $("section-providers").classList.toggle("hidden", btn.dataset.section !== "providers");
-      $("section-workspaces").classList.toggle("hidden", btn.dataset.section !== "workspaces");
+      for (const sec of ["providers", "agent", "workspaces"]) {
+        $(`section-${sec}`).classList.toggle("hidden", btn.dataset.section !== sec);
+      }
     };
   }
+
+  // Agent prefs: AG-style rows with a dropdown on the right.
+  makePrefDropdown($("pref-approval-slot"), {
+    value: state.prefs.defaultApprovalMode === "auto" ? "Auto" : "Manual",
+    options: ["Manual", "Auto"],
+    onPick: guard(async (label) => {
+      const mode = label.toLowerCase();
+      state.prefs.defaultApprovalMode = mode;
+      await api.setAppPrefs(mode, null);
+    }),
+  });
+  makePrefDropdown($("pref-notif-slot"), {
+    value: state.prefs.notifications ? "On" : "Off",
+    options: ["On", "Off"],
+    onPick: guard(async (label) => {
+      state.prefs.notifications = label === "On";
+      await api.setAppPrefs(null, state.prefs.notifications);
+    }),
+  });
 
   $("custom-provider-form").onsubmit = guard(async (e) => {
     e.preventDefault();
