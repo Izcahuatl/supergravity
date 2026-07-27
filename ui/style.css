@@ -866,18 +866,60 @@ button:active { transform: scale(0.97); }
 /* --- settings model checkboxes --- */
 .models-wrap { display: flex; flex-direction: column; gap: 2px; margin: 6px 0; }
 .models-head { font-size: 12px; margin-bottom: 2px; }
-.model-check {
-  display: flex;
+/* Model toggles as chips: hidden native checkbox, custom indicator + states.
+   Selector outranks `#settings-content label` (which forces display:block). */
+#settings-content .model-check {
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
-  padding: 3px 6px;
-  border-radius: 5px;
+  font-size: 12.5px;
+  margin: 0;
+  padding: 6px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-dim);
   cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition: border-color 0.13s ease, background 0.13s ease, color 0.13s ease;
 }
-.model-check:hover { background: var(--bg-input); }
-.model-check input[type="checkbox"] { accent-color: var(--accent); width: 14px; height: 14px; margin: 0; }
-.model-add { display: flex; gap: 6px; margin-top: 4px; }
+#settings-content .model-check:hover { border-color: #454552; color: var(--text); }
+.model-check input[type="checkbox"] { display: none; }
+.model-check::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  flex-shrink: 0;
+  transition: background 0.13s ease, border-color 0.13s ease;
+}
+#settings-content .model-check:has(input:checked) {
+  color: var(--text);
+  border-color: var(--accent);
+  background: rgba(139, 92, 246, 0.12);
+}
+#settings-content .model-check:has(input:checked)::before {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+/* CSS-drawn check, absolutely placed over the box (no image — CSP-safe). */
+.model-check { position: relative; }
+.model-check:has(input:checked)::after {
+  content: "";
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  width: 4px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: translateY(-70%) rotate(45deg);
+  pointer-events: none;
+}
+.model-add { display: flex; gap: 6px; margin-top: 8px; }
 .model-add input { flex: 1; }
 
 /* --- fullscreen settings extras --- */
@@ -885,10 +927,10 @@ button:active { transform: scale(0.97); }
 .provider-row { padding: 14px 16px; }
 .provider-row input[type="text"], .provider-row input:not([type]) { width: 100%; max-width: 420px; }
 .models-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-  gap: 2px 14px;
-  margin-top: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 6px;
 }
 .saved-flash {
   color: var(--ok);
