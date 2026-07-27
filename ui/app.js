@@ -744,6 +744,14 @@ boot().catch((e) => {
   document.getElementById("chat-title").textContent = `Boot failed: ${e}`;
 });
 
+// Suppress WebView2's default page menu (Back/Refresh/Print/…) everywhere —
+// our own context menus handle their targets. Text fields keep their edit menu.
+document.addEventListener("contextmenu", (e) => {
+  if (!(e.target instanceof Element)) return;
+  if (e.target.closest("input, textarea")) return;
+  e.preventDefault();
+});
+
 // Copy buttons on code blocks (event delegation — buttons are inside .md).
 document.addEventListener("click", (e) => {
   const btn = e.target.closest(".code-copy");

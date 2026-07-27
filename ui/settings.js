@@ -30,6 +30,36 @@ async function saveProvider(p, row) {
   flash._t = setTimeout(() => flash.classList.remove("show"), 1200);
 }
 
+// Right-click context menu on model chips (Delete model).
+let chipMenu = null;
+function closeChipMenu() {
+  chipMenu?.remove();
+  chipMenu = null;
+}
+document.addEventListener("click", closeChipMenu);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeChipMenu();
+});
+
+function showChipMenu(x, y, onDelete) {
+  closeChipMenu();
+  const menu = document.createElement("div");
+  menu.className = "ctx-menu";
+  const item = document.createElement("button");
+  item.type = "button";
+  item.className = "dropdown-item";
+  item.textContent = "Delete model";
+  item.onclick = guard(async () => {
+    closeChipMenu();
+    await onDelete();
+  });
+  menu.appendChild(item);
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
+  document.body.appendChild(menu);
+  chipMenu = menu;
+}
+
 /// Small dropdown for AG-style settings rows (control on the right side).
 function makePrefDropdown(host, { value, options, groupLabel = "Options", onPick }) {
   const dd = makeDropdown({
@@ -228,6 +258,16 @@ function renderProviderDetail() {
     const txt = document.createElement("span");
     txt.textContent = name;
     mrow.append(cb, txt);
+    mrow.title = "Toggle in picker — right-click to delete";
+    mrow.oncontextmenu = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      showChipMenu(e.clientX, e.clientY, async () => {
+        p.models = p.models.filter((m) => m !== name);
+        mrow.remove();
+        await saveProvider(p, row);
+      });
+    };
     modelsGrid.appendChild(mrow);
     return mrow;
   };
