@@ -3,7 +3,7 @@ use crate::core::types::ToolSpec;
 use serde::Deserialize;
 use serde_json::json;
 
-use super::{resolve_in_workspace, truncate_output, Tool, ToolContext};
+use super::{truncate_output, Tool, ToolContext};
 
 const MAX_FILE_READ: u64 = 10 * 1024 * 1024;
 const MAX_OUTPUT: usize = 50 * 1024;
@@ -39,7 +39,7 @@ impl Tool for ReadFileTool {
 
     async fn execute(&self, ctx: &ToolContext, args_json: &str) -> Result<String> {
         let args: ReadFileArgs = serde_json::from_str(args_json)?;
-        let path = resolve_in_workspace(&ctx.workspace_root, &args.path)?;
+        let path = ctx.resolve(&args.path)?;
         if let Ok(meta) = std::fs::metadata(&path) {
             if meta.len() > MAX_FILE_READ {
                 return Err(Error::Tool(format!(
@@ -112,7 +112,7 @@ impl Tool for WriteFileTool {
 
     async fn execute(&self, ctx: &ToolContext, args_json: &str) -> Result<String> {
         let args: WriteFileArgs = serde_json::from_str(args_json)?;
-        let path = resolve_in_workspace(&ctx.workspace_root, &args.path)?;
+        let path = ctx.resolve(&args.path)?;
         let mode = args.mode.as_deref().unwrap_or("overwrite");
         if !matches!(mode, "create" | "overwrite" | "append") {
             return Err(Error::Tool(format!("unknown write mode: {mode}")));
@@ -173,7 +173,7 @@ impl Tool for ListDirTool {
 
     async fn execute(&self, ctx: &ToolContext, args_json: &str) -> Result<String> {
         let args: ListDirArgs = serde_json::from_str(args_json)?;
-        let base = resolve_in_workspace(&ctx.workspace_root, args.path.as_deref().unwrap_or("."))?;
+        let base = ctx.resolve(args.path.as_deref().unwrap_or("."))?;
         if !base.is_dir() {
             return Err(Error::Tool(format!("not a directory: {}", base.display())));
         }
@@ -448,7 +448,7 @@ impl Tool for EditFileTool {
         if args.old_string.is_empty() {
             return Err(Error::Tool("old_string must not be empty".into()));
         }
-        let path = resolve_in_workspace(&ctx.workspace_root, &args.path)?;
+        let path = ctx.resolve(&args.path)?;
         let bytes = std::fs::read(&path)
             .map_err(|e| Error::Tool(format!("cannot read {}: {e}", path.display())))?;
         let content = String::from_utf8_lossy(&bytes).into_owned();
@@ -487,6 +487,7 @@ mod tests {
         let root = dir.path().to_path_buf();
         let ctx = ToolContext {
             workspace_root: root.clone(),
+            workshop_root: None,
         };
         std::fs::create_dir_all(root.join("src")).unwrap();
         std::fs::write(root.join("src/a.txt"), "line1\nline2\nline3\nline4\n").unwrap();

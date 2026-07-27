@@ -74,6 +74,7 @@ mod tests {
     fn ctx() -> ToolContext {
         ToolContext {
             workspace_root: std::path::PathBuf::from(if cfg!(windows) { "C:\\w" } else { "/w" }),
+            workshop_root: None,
         }
     }
 

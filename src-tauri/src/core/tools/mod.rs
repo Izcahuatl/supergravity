@@ -7,6 +7,24 @@ pub struct ToolContext {
     /// MUST be an absolute path; a relative/empty root is rejected by
     /// `resolve_in_workspace` (it would otherwise match every path).
     pub workspace_root: PathBuf,
+    /// Per-conversation scratch dir outside the workspace (the "Workshop").
+    /// Tools may read/write here too. None disables it.
+    pub workshop_root: Option<PathBuf>,
+}
+
+impl ToolContext {
+    /// Resolve `p` for tool I/O: under the workspace root or, when set, under
+    /// this conversation's workshop root. Relative paths anchor to the
+    /// workspace; the workshop is reached via its absolute path.
+    pub fn resolve(&self, p: &str) -> Result<PathBuf> {
+        if let Ok(abs) = resolve_in_workspace(&self.workspace_root, p) {
+            return Ok(abs);
+        }
+        if let Some(w) = &self.workshop_root {
+            return resolve_in_workspace(w, p);
+        }
+        Err(Error::Tool(format!("path escapes workspace: {p}")))
+    }
 }
 
 /// A capability the agent can invoke via provider tool calls.
@@ -110,6 +128,30 @@ mod tests {
 
     fn abs(path: &str) -> PathBuf {
         abs_root().join(path.replace('/', std::path::MAIN_SEPARATOR_STR))
+    }
+
+    #[test]
+    fn ctx_resolve_accepts_workspace_and_workshop() {
+        let shop = PathBuf::from(if cfg!(windows) { "C:\\workshop" } else { "/workshop" });
+        let ctx = ToolContext {
+            workspace_root: abs_root().to_path_buf(),
+            workshop_root: Some(shop.clone()),
+        };
+        // Workspace-relative and workshop-absolute both resolve.
+        assert_eq!(ctx.resolve("src/a.rs").unwrap(), abs("src/a.rs"));
+        let w = shop.to_string_lossy().replace('\\', "/");
+        assert_eq!(
+            ctx.resolve(&format!("{w}/scratch.py")).unwrap(),
+            shop.join("scratch.py")
+        );
+        // Absolute paths outside both roots are still rejected.
+        assert!(ctx.resolve(if cfg!(windows) { "D:\\elsewhere\\x" } else { "/elsewhere/x" }).is_err());
+        // Without a workshop root, the workshop path is rejected too.
+        let ctx2 = ToolContext {
+            workspace_root: abs_root().to_path_buf(),
+            workshop_root: None,
+        };
+        assert!(ctx2.resolve(&format!("{w}/scratch.py")).is_err());
     }
 
     #[test]

@@ -123,6 +123,7 @@ mod tests {
             dir,
             ToolContext {
                 workspace_root: root,
+                workshop_root: None,
             },
         )
     }

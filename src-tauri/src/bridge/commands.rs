@@ -94,6 +94,12 @@ pub async fn delete_conversation_impl(state: &AppState, id: String) -> Result<()
     if let Some(agent) = state.agents.lock().unwrap().get(&id) {
         agent.cancel.cancel();
     }
+    // Remove the conversation's scratch dir (best-effort).
+    if state.config_path.is_absolute() {
+        if let Some(parent) = state.config_path.parent() {
+            let _ = std::fs::remove_dir_all(parent.join("workshops").join(&id));
+        }
+    }
     let s = state.store.clone();
     block(move || s.delete_conversation(&id)).await
 }

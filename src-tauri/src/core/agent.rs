@@ -100,6 +100,8 @@ pub struct AgentRequest {
     pub max_iterations: usize,
     /// Checkpoint sink for Rewind; None disables file backups.
     pub backup: Option<BackupCtx>,
+    /// Per-conversation scratch dir exposed to tools (the "Workshop").
+    pub workshop_root: Option<PathBuf>,
 }
 
 /// Checkpoint sink: snapshots a file's bytes before a mutating tool changes
@@ -151,7 +153,12 @@ pub async fn run(req: AgentRequest) -> AgentOutcome {
     let mut messages = Vec::with_capacity(req.history.len() + 1);
     messages.push(Message::text(
         Role::System,
-        system_prompt(&req.workspace_root, req.approvals.mode(), &req.tools),
+        system_prompt(
+            &req.workspace_root,
+            req.approvals.mode(),
+            &req.tools,
+            req.workshop_root.as_deref(),
+        ),
     ));
     messages.extend(truncate_history(
         req.history,
@@ -274,6 +281,7 @@ pub async fn run(req: AgentRequest) -> AgentOutcome {
 
         let ctx = ToolContext {
             workspace_root: req.workspace_root.clone(),
+            workshop_root: req.workshop_root.clone(),
         };
         let mut results: Vec<ContentPart> = Vec::new();
         let mut iter = calls.into_iter();
@@ -490,6 +498,7 @@ pub fn system_prompt(
     workspace_root: &std::path::Path,
     mode: crate::core::types::ApprovalMode,
     tools: &[Box<dyn Tool>],
+    workshop_root: Option<&std::path::Path>,
 ) -> String {
     let tool_names: Vec<String> = tools.iter().map(|t| t.spec().name).collect();
     let mode_note = match mode {
@@ -499,6 +508,15 @@ pub fn system_prompt(
         crate::core::types::ApprovalMode::Auto => {
             "You may write files and run shell commands without user approval."
         }
+    };
+    let workshop_note = match workshop_root {
+        Some(w) => format!(
+            "\nWorkshop: you have a private scratch directory OUTSIDE the workspace at {} — \
+             use it freely for experiments, python scripts, and temp files. Your file tools \
+             accept absolute paths inside it; run scripts there via run_shell (e.g. python).",
+            w.display()
+        ),
+        None => String::new(),
     };
     format!(
         "You are Supergravity, a coding agent.\n\
@@ -525,10 +543,11 @@ pub fn system_prompt(
          Planning: for any task with 2+ steps, maintain the visible plan via update_plan — \
          call it FIRST with your steps (exactly one in_progress), update it as steps complete, \
          and mark every step done before your final summary. Skip it only for trivial one-liners.\n\
-         {}",
+         {}{}",
         workspace_root.display(),
         tool_names.join(", "),
-        mode_note
+        mode_note,
+        workshop_note
     )
 }
 
@@ -598,6 +617,7 @@ mod tests {
         tools: Vec<Box<dyn Tool>>,
         max_iterations: usize,
         backup: Option<BackupCtx>,
+        workshop_root: Option<PathBuf>,
     }
 
     async fn run_agent(
@@ -623,6 +643,7 @@ mod tests {
             cancel: tokio_util::sync::CancellationToken::new(),
             max_iterations: args.max_iterations,
             backup: args.backup,
+            workshop_root: args.workshop_root,
         };
         let handle = tokio::spawn(run(req));
         let mut events = vec![];
@@ -681,6 +702,7 @@ mod tests {
                 conversation_id: cid.clone(),
                 after_message_id: 7,
             }),
+            workshop_root: None,
         };
         let handle = tokio::spawn(run(req));
         while events_rx.recv().await.is_some() {}
@@ -770,6 +792,7 @@ mod tests {
             tools: vec![],
             max_iterations: 5,
             backup: None,
+            workshop_root: None,
         })
         .await;
         let msgs = result.produced;
@@ -835,6 +858,7 @@ mod tests {
             })],
             max_iterations: 5,
             backup: None,
+            workshop_root: None,
         })
         .await;
         let msgs = result.produced;
@@ -878,6 +902,7 @@ mod tests {
             })],
             max_iterations: 5,
             backup: None,
+            workshop_root: None,
         })
         .await;
         assert_eq!(result.produced.len(), 1, "plain text answer, no repair");
@@ -897,6 +922,7 @@ mod tests {
             tools: vec![],
             max_iterations: 5,
             backup: None,
+            workshop_root: None,
         })
         .await;
         assert!(result.error.is_none());
@@ -947,6 +973,7 @@ mod tests {
             })],
             max_iterations: 5,
             backup: None,
+            workshop_root: None,
         })
         .await;
         let msgs = result.produced;
@@ -1009,6 +1036,7 @@ mod tests {
             cancel: tokio_util::sync::CancellationToken::new(),
             max_iterations: 5,
             backup: None,
+            workshop_root: None,
         };
         let handle = tokio::spawn(run(req));
         // deny the approval request when it arrives
@@ -1051,6 +1079,7 @@ mod tests {
             tools: vec![],
             max_iterations: 5,
             backup: None,
+            workshop_root: None,
         })
         .await;
         let msgs = result.produced;
@@ -1087,6 +1116,7 @@ mod tests {
             })],
             max_iterations: 2,
             backup: None,
+            workshop_root: None,
         })
         .await;
         assert!(result.error.is_some());
@@ -1105,6 +1135,7 @@ mod tests {
             tools: vec![],
             max_iterations: 5,
             backup: None,
+            workshop_root: None,
         })
         .await;
         assert!(result.error.is_some());
@@ -1135,6 +1166,7 @@ mod tests {
             cancel,
             max_iterations: 5,
             backup: None,
+            workshop_root: None,
         };
         let result = run(req).await;
         assert!(matches!(
@@ -1179,6 +1211,7 @@ mod tests {
             })],
             max_iterations: 5,
             backup: None,
+            workshop_root: None,
         })
         .await;
         let msgs = result.produced;
@@ -1231,6 +1264,7 @@ mod tests {
             cancel: tokio_util::sync::CancellationToken::new(),
             max_iterations: 5,
             backup: None,
+            workshop_root: None,
         };
         let handle = tokio::spawn(run(req));
         while let Some(ev) = events_rx.recv().await {
@@ -1279,6 +1313,7 @@ mod tests {
             cancel: cancel.clone(),
             max_iterations: 5,
             backup: None,
+            workshop_root: None,
         };
         let handle = tokio::spawn(run(req));
         // when the approval request arrives, cancel instead of resolving
@@ -1322,6 +1357,7 @@ mod tests {
             cancel: cancel.clone(),
             max_iterations: 5,
             backup: None,
+            workshop_root: None,
         };
         let handle = tokio::spawn(run(req));
         // Cancel ~100ms in, while the 30s SleepTool is mid-execute.
@@ -1385,6 +1421,7 @@ mod tests {
             cancel: cancel.clone(),
             max_iterations: 5,
             backup: None,
+            workshop_root: None,
         };
         let handle = tokio::spawn(run(req));
         // Cancel ~100ms in: c1 has echoed, c2 (sleep) is mid-execute.

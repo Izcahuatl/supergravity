@@ -3,7 +3,7 @@ use crate::core::types::ToolSpec;
 use serde::Deserialize;
 use serde_json::json;
 
-use super::{resolve_in_workspace, truncate_output, Tool, ToolContext};
+use super::{truncate_output, Tool, ToolContext};
 
 const MAX_MATCHES: usize = 200;
 const MAX_OUTPUT: usize = 50 * 1024;
@@ -42,7 +42,7 @@ impl Tool for GrepTool {
     async fn execute(&self, ctx: &ToolContext, args_json: &str) -> Result<String> {
         let args: GrepArgs = serde_json::from_str(args_json)?;
         let re = regex::Regex::new(&args.pattern)?;
-        let base = resolve_in_workspace(&ctx.workspace_root, args.path.as_deref().unwrap_or("."))?;
+        let base = ctx.resolve(args.path.as_deref().unwrap_or("."))?;
         let file_glob = args
             .glob
             .as_deref()
@@ -209,6 +209,7 @@ mod tests {
             dir,
             ToolContext {
                 workspace_root: root,
+                workshop_root: None,
             },
         )
     }

@@ -42,7 +42,7 @@ impl Lab {
         // Record what the agent will send on iteration 1 (system prompt + history).
         let mut with_system = vec![Message::text(
             Role::System,
-            agent::system_prompt(self.workspace.path(), ApprovalMode::Auto, &default_tools()),
+            agent::system_prompt(self.workspace.path(), ApprovalMode::Auto, &default_tools(), None),
         )];
         with_system.extend(messages.iter().cloned());
         self.bodies.push(ollama::build_body(&model(), &with_system, &default_tools_specs()));
@@ -60,6 +60,7 @@ impl Lab {
             cancel: CancellationToken::new(),
             max_iterations: DEFAULT_MAX_ITERATIONS,
             backup: None,
+            workshop_root: None,
         };
         let handle = tokio::spawn(agent::run(req));
         while let Some(ev) = events_rx.recv().await {

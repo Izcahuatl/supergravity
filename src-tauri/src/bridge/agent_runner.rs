@@ -57,6 +57,8 @@ pub struct AgentTaskParts {
     pub after_message_id: i64,
     /// Provider answering this run (stamped onto produced messages).
     pub provider_id: String,
+    /// Per-conversation scratch dir (created lazily; None in tests).
+    pub workshop_root: Option<PathBuf>,
 }
 
 impl AgentTaskParts {
@@ -118,6 +120,22 @@ impl AgentTaskParts {
             let c = conv.id.clone();
             block(move || s.last_message_id(&c)).await?
         };
+        // Per-conversation scratch dir ("Workshop") under the app data dir.
+        // Production only — tests use a relative config path and skip this.
+        let workshop_root = if state.config_path.is_absolute() {
+            state.config_path.parent().and_then(|p| {
+                let d = p.join("workshops").join(&conv.id);
+                match std::fs::create_dir_all(&d) {
+                    Ok(()) => Some(d),
+                    Err(e) => {
+                        eprintln!("supergravity: cannot create workshop dir: {e}");
+                        None
+                    }
+                }
+            })
+        } else {
+            None
+        };
         Ok(AgentTaskParts {
             agents: state.agents.clone(),
             store: state.store.clone(),
@@ -132,6 +150,7 @@ impl AgentTaskParts {
             conversation_id: conv.id.clone(),
             after_message_id,
             provider_id: conv.provider_id.clone(),
+            workshop_root,
         })
     }
 }
@@ -169,6 +188,7 @@ pub async fn run_agent_task(
             conversation_id: parts.conversation_id.clone(),
             after_message_id: parts.after_message_id,
         }),
+        workshop_root: parts.workshop_root.clone(),
     })
     .await;
     {
