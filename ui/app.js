@@ -744,11 +744,10 @@ boot().catch((e) => {
   document.getElementById("chat-title").textContent = `Boot failed: ${e}`;
 });
 
-// Suppress WebView2's default page menu (Back/Refresh/Print/…) everywhere —
-// our own context menus handle their targets. Text fields keep their edit menu.
+// Suppress WebView2's default context menus (page menu AND textbox edit menu)
+// everywhere — our own context menus handle their targets.
 document.addEventListener("contextmenu", (e) => {
   if (!(e.target instanceof Element)) return;
-  if (e.target.closest("input, textarea")) return;
   e.preventDefault();
 });
 
