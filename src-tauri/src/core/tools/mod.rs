@@ -32,6 +32,8 @@ pub fn default_tools() -> Vec<Box<dyn Tool>> {
         Box::new(shell::RunShellTool),
         Box::new(plan::UpdatePlanTool),
         Box::new(fs::ListExternalDirTool),
+        Box::new(fs::ReadExternalFileTool),
+        Box::new(fs::WriteExternalFileTool),
     ]
 }
 

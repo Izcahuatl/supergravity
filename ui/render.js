@@ -123,6 +123,8 @@ const STEP_VERBS = {
   glob: (a) => `Found files matching ${a.pattern ?? ""}`,
   run_shell: (a) => `Ran ${(a.command ?? "").slice(0, 60)}`,
   list_external_dir: (a) => `Listed external ${a.path ?? "dir"}`,
+  read_external_file: (a) => `Read external ${a.path ?? "file"}`,
+  write_external_file: (a) => `Wrote external ${a.path ?? "file"}`,
 };
 
 export function toolVerb(name, argsJson) {

@@ -173,8 +173,8 @@ export function handleAgentEvent(payload) {
         existing.classList.add("approval-card");
         // Approving blind is useless — show the args that need a decision.
         existing.querySelector(".tool-args")?.classList.remove("hidden");
-        if (event.data.name === "list_external_dir") {
-          existing.querySelector(".tool-verb").textContent = "Agent wants to access an external directory";
+        if (APPROVAL_TEXT[event.data.name]) {
+          existing.querySelector(".tool-verb").textContent = APPROVAL_TEXT[event.data.name];
         }
         attachDiffPreview(existing, conversation_id, event.data.name, event.data.args_json);
         const status = existing.querySelector(".tool-status");
@@ -257,6 +257,13 @@ export function buildApprovalButtons(conversationId, data) {
   return buttons;
 }
 
+/// Prompt text for sandbox-crossing tools (everything else gets the default).
+const APPROVAL_TEXT = {
+  list_external_dir: "Agent wants to access an external directory",
+  read_external_file: "Agent wants to read a file outside the workspace",
+  write_external_file: "Agent wants to write a file outside the workspace",
+};
+
 export function buildApprovalCard(conversationId, data) {
   const card = document.createElement("div");
   card.className = "approval-card";
@@ -265,9 +272,7 @@ export function buildApprovalCard(conversationId, data) {
   head.className = "tool-head";
   head.innerHTML = `${icon("alert", 13)}<span></span>`;
   head.querySelector("span").textContent =
-    data.name === "list_external_dir"
-      ? "Agent wants to access an external directory"
-      : `${data.name} needs approval`;
+    APPROVAL_TEXT[data.name] ?? `${data.name} needs approval`;
   const args = document.createElement("pre");
   args.className = "tool-args";
   args.textContent = prettyArgs(data.args_json);

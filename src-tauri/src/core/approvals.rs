@@ -19,7 +19,7 @@ pub struct ApprovalBroker {
 
 /// Tools that ALWAYS prompt the user, even in Auto mode — they cross the
 /// workspace sandbox boundary, so auto-approving them would defeat the point.
-const ALWAYS_ASK: [&str; 1] = ["list_external_dir"];
+const ALWAYS_ASK: [&str; 3] = ["list_external_dir", "read_external_file", "write_external_file"];
 
 impl ApprovalBroker {
     pub fn new(mode: ApprovalMode, events: mpsc::Sender<AgentEvent>) -> Self {

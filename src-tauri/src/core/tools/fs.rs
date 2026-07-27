@@ -263,6 +263,154 @@ impl Tool for ListExternalDirTool {
     }
 }
 
+/// Read a UTF-8 text file OUTSIDE the workspace (absolute path). Same output
+/// shape as read_file; gated by an explicit user prompt regardless of mode.
+pub struct ReadExternalFileTool;
+
+#[derive(Deserialize)]
+struct ReadExternalFileArgs {
+    path: String,
+    offset: Option<usize>,
+    limit: Option<usize>,
+}
+
+#[async_trait::async_trait]
+impl Tool for ReadExternalFileTool {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "read_external_file".into(),
+            description: "Read a UTF-8 text file OUTSIDE the workspace (absolute path, optional 1-based offset and line limit). The user is prompted before this runs. Use ONLY when the user explicitly asks for a file outside the project.".into(),
+            params_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Absolute file path"},
+                    "offset": {"type": "integer", "description": "1-based line number to start from"},
+                    "limit": {"type": "integer", "description": "Max lines to return (default 2000)"}
+                },
+                "required": ["path"]
+            }),
+        }
+    }
+
+    fn needs_approval(&self) -> bool {
+        true
+    }
+
+    async fn execute(&self, _ctx: &ToolContext, args_json: &str) -> Result<String> {
+        let args: ReadExternalFileArgs = serde_json::from_str(args_json)?;
+        let path = std::path::PathBuf::from(&args.path);
+        if !path.is_absolute() {
+            return Err(Error::Tool(format!(
+                "external path must be absolute: {}",
+                args.path
+            )));
+        }
+        if let Ok(meta) = std::fs::metadata(&path) {
+            if meta.len() > MAX_FILE_READ {
+                return Err(Error::Tool(format!(
+                    "file too large ({} bytes, max {MAX_FILE_READ}): {}",
+                    meta.len(),
+                    path.display()
+                )));
+            }
+        }
+        let bytes = std::fs::read(&path)
+            .map_err(|e| Error::Tool(format!("cannot read {}: {e}", path.display())))?;
+        let text = String::from_utf8_lossy(&bytes);
+        let offset = args.offset.unwrap_or(1).max(1);
+        let limit = args.limit.unwrap_or(DEFAULT_LINE_LIMIT).max(1);
+        let lines: Vec<&str> = text.lines().collect();
+        let total = lines.len();
+        let slice: Vec<&str> = lines.iter().skip(offset - 1).take(limit).copied().collect();
+        if slice.is_empty() && offset > total {
+            return Ok(format!("[offset {offset} past end of file: {total} lines]"));
+        }
+        let mut out = slice.join("\n");
+        let shown_up_to = offset - 1 + slice.len();
+        if shown_up_to < total {
+            out.push_str(&format!("\n…[{} more lines]", total - shown_up_to));
+        } else if !slice.is_empty() && text.ends_with('\n') {
+            out.push('\n');
+        }
+        Ok(truncate_output(&out, MAX_OUTPUT))
+    }
+}
+
+/// Write a text file OUTSIDE the workspace (absolute path). Gated by an
+/// explicit user prompt regardless of mode. Not covered by Rewind checkpoints.
+pub struct WriteExternalFileTool;
+
+#[derive(Deserialize)]
+struct WriteExternalFileArgs {
+    path: String,
+    content: String,
+    mode: Option<String>,
+}
+
+#[async_trait::async_trait]
+impl Tool for WriteExternalFileTool {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "write_external_file".into(),
+            description: "Write text to a file OUTSIDE the workspace (absolute path). mode: create (fail if exists), overwrite (default), append. The user is prompted before this runs. Use ONLY when the user explicitly asks to write outside the project.".into(),
+            params_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Absolute file path"},
+                    "content": {"type": "string"},
+                    "mode": {"type": "string", "enum": ["create", "overwrite", "append"]}
+                },
+                "required": ["path", "content"]
+            }),
+        }
+    }
+
+    fn needs_approval(&self) -> bool {
+        true
+    }
+
+    async fn execute(&self, _ctx: &ToolContext, args_json: &str) -> Result<String> {
+        let args: WriteExternalFileArgs = serde_json::from_str(args_json)?;
+        let path = std::path::PathBuf::from(&args.path);
+        if !path.is_absolute() {
+            return Err(Error::Tool(format!(
+                "external path must be absolute: {}",
+                args.path
+            )));
+        }
+        let mode = args.mode.as_deref().unwrap_or("overwrite");
+        if !matches!(mode, "create" | "overwrite" | "append") {
+            return Err(Error::Tool(format!("unknown write mode: {mode}")));
+        }
+        if mode == "create" && path.exists() {
+            return Err(Error::Tool(format!(
+                "file already exists: {}",
+                path.display()
+            )));
+        }
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        match mode {
+            "create" | "overwrite" => std::fs::write(&path, &args.content)?,
+            "append" => {
+                use std::io::Write;
+                let mut f = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&path)?;
+                f.write_all(args.content.as_bytes())?;
+            }
+            _ => unreachable!(),
+        }
+        Ok(format!(
+            "wrote {} bytes to {}",
+            args.content.len(),
+            path.display()
+        ))
+    }
+}
+
 pub struct EditFileTool;
 #[derive(Deserialize)]
 struct EditFileArgs {
@@ -624,5 +772,33 @@ mod tests {
         assert!(out.contains("out.txt"), "{out}");
         assert!(ListExternalDirTool.needs_approval());
         let _ = dir;
+    }
+
+    #[tokio::test]
+    async fn read_and_write_external_file() {
+        let (_d, ctx) = ctx();
+        let outside = tempfile::tempdir().unwrap();
+        let file = outside.path().join("note.txt");
+        let esc = |p: &std::path::Path| p.to_string_lossy().replace('\\', "\\\\");
+
+        // write (create)
+        let args = format!(r#"{{"path": "{}", "content": "l1\nl2\n", "mode": "create"}}"#, esc(&file));
+        WriteExternalFileTool.execute(&ctx, &args).await.unwrap();
+        // create again fails
+        assert!(WriteExternalFileTool.execute(&ctx, &args).await.is_err());
+        // read back
+        let out = ReadExternalFileTool
+            .execute(&ctx, &format!(r#"{{"path": "{}"}}"#, esc(&file)))
+            .await
+            .unwrap();
+        assert_eq!(out, "l1\nl2\n");
+        // relative rejected on both
+        assert!(ReadExternalFileTool.execute(&ctx, r#"{"path": "x.txt"}"#).await.is_err());
+        assert!(WriteExternalFileTool
+            .execute(&ctx, r#"{"path": "x.txt", "content": "y"}"#)
+            .await
+            .is_err());
+        assert!(ReadExternalFileTool.needs_approval());
+        assert!(WriteExternalFileTool.needs_approval());
     }
 }

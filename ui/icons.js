@@ -59,4 +59,6 @@ export const TOOL_ICONS = {
   run_shell: "terminal",
   update_plan: "list",
   list_external_dir: "alert",
+  read_external_file: "file-text",
+  write_external_file: "edit",
 };
