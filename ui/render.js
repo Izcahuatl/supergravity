@@ -56,8 +56,25 @@ export function renderUserText(container, text) {
   if (last < text.length) renderTextPart(container, text.slice(last));
 }
 
-// ---------- task plan card ----------
+/// History tool row: same compact row as live, with the final status and the
+/// result summary folded into the expandable detail (errors expanded).
+function renderHistoryToolRow(call, result) {
+  const card = renderToolCallCard(call);
+  const status = card.querySelector(".tool-status");
+  status.textContent = result?.is_error ? "✗" : "✓";
+  status.className = "tool-status " + (result?.is_error ? "err" : "ok");
+  const detail = card.querySelector(".tool-args");
+  if (result && detail) {
+    detail.textContent += `\n→ ${result.content.slice(0, 400)}`;
+    if (result.is_error) detail.classList.remove("hidden");
+  }
+  const wrap = addBubble("assistant");
+  wrap.classList.add("tool-wrap");
+  wrap.appendChild(card);
+  return wrap;
+}
 
+// ---------- task plan card ----------
 const PLAN_STATUS_ICON = { done: "check-circle", in_progress: "play", pending: "circle" };
 
 /// Checklist card for the agent-maintained plan (AG's "Task" artifact).
@@ -269,16 +286,28 @@ export function renderMessages(msgs, convId) {
     if (calls.length) {
       el.appendChild(renderWorkedFor(run, calls));
     }
+    // Interleaved flow: text bubbles and tool rows in the order they happened,
+    // so the user sees what ran between outputs (AG-style).
+    const results = new Map();
+    for (const m of run.items) {
+      if (m.role !== "tool") continue;
+      for (const p of m.parts) {
+        if (p.type === "tool_result") results.set(p.tool_call_id, p);
+      }
+    }
     for (const m of run.items) {
       if (m.role !== "assistant") continue;
-      const bubble = addBubble("assistant");
-      // Right-click shows which model produced this message.
-      if (m.model) bubble.dataset.model = m.model;
-      if (m.provider_id) bubble.dataset.provider = m.provider_id;
       for (const p of m.parts) {
-        if (p.type === "text") renderTextPart(bubble, p.text);
+        if (p.type === "text") {
+          const bubble = addBubble("assistant");
+          // Right-click shows which model produced this message.
+          if (m.model) bubble.dataset.model = m.model;
+          if (m.provider_id) bubble.dataset.provider = m.provider_id;
+          renderTextPart(bubble, p.text);
+        } else if (p.type === "tool_call" && p.name !== "update_plan") {
+          el.appendChild(renderHistoryToolRow(p, results.get(p.id)));
+        }
       }
-      if (!bubble.hasChildNodes()) bubble.remove();
     }
     const card = renderChangeCard(calls, convId, run.user.id);
     if (card) el.appendChild(card);
