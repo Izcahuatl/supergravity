@@ -52,14 +52,14 @@ The exe lands in `target/release/`, installers in `target/release/bundle/`.
 ---
 ## Waaaahh it broke
 **"No enabled models"**
-- That's not a bug, that's the default. Settings, enable some models.
+- Settings, enable some models
 
 **The model emits garbage tool calls or fused JSON**
-- That's not me, that's a weak model. It recovers by itself usually. If a whole conversation is stuck, rewind to before it went wrong.
+- Weak model. It recovers by itself usually but if a whole conversation is stuck, rewind to before it went wrong
 
 **Nothing happens when I send**
-- Check the provider actually has a key and the model is enabled. Cloud free tiers also just... die sometimes.
-- Still nothing? Launch with `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222` and look at the devtools on port 9222 like a caveman.
+- Check the provider actually has a key and the model is enabled. Cloud free tiers also just suck sometimes
+- Still nothing? Launch with `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222` and look at the devtools on port 9222 like an Amish caveman
 
 ---
 ## Serious License Stuff
