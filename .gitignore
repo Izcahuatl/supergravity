@@ -5,3 +5,5 @@
 /.idea
 # written by bridge tests (AppState::test config_path)
 /src-tauri/test-config.toml
+.idea/
+html/.idea/
