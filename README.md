@@ -10,7 +10,6 @@ Supergravity is like Google Antigravity, except it's not married to one vendor. 
 - Every chat gets a **Workshop**: its own scratch folder for python and experiments, full perms, zero cleanup duty for you.
 - Checkpoints on every file change. Rewind a whole turn, or revert one file. Undo that actually works.
 - Task plans with a checklist up top, `@file` mentions, diff previews before you approve anything, Windows toast pings when it's done.
-- No telemetry, no accounts, no sync. Local SQLite + your OS keychain. That's the whole cloud.
 ---
 ## Getting it
 Grab the latest build from [Releases](../../releases). Duh.
@@ -31,7 +30,7 @@ Honestly most of it is self-explanatory, but here's the stuff that isn't obvious
 In Settings, split three ways:
 - **Project**: file writes and shell commands, ask or allow separately.
 - **External**: anything outside the project. Asks *every* time by default, even in Auto mode. You can also block it entirely.
-- **Workshop**: full access by default. It's a scratch pad, who cares.
+- **Workshop**: (mostly) full access by default.
 
 ### Rewind
 Right-click any of your own messages. "Rewind to here" deletes that message and everything after, puts the text back in the box, and **restores the files** to how they were at that point. The Review panel can also revert single files if you don't want to nuke the whole turn.
