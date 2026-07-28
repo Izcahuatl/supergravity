@@ -1,60 +1,83 @@
-# supergravity
+# Supergravity
+**Agentic coding app that doesn't care whose model you use!!**
 
-An agentic coding desktop app in the spirit of Google Antigravity, without the
-vendor lock-in. It runs against OpenAI, Anthropic, Gemini, local Ollama models,
-or any OpenAI-compatible endpoint.
+Supergravity is like Google Antigravity, except it's not married to one vendor. OpenAI, Anthropic, Gemini, your local Ollama stuff, or whatever random OpenAI-compatible endpoint you found. Point it at a project folder and the agent reads, writes, edits, searches, and runs commands in it.
 
-The agent reads, writes, and edits files, searches code, and runs shell
-commands inside a project folder you give it. Every class of action has its own
-permission policy, so you decide what runs free and what asks first.
+---
+## Features?
+- Use any model. Switch mid-conversation if you want, the chat remembers which model answered what.
+- Approvals per action type. Writes and shell commands ask first, or don't. Your call.
+- Every chat gets a **Workshop**: its own scratch folder for python and experiments, full perms, zero cleanup duty for you.
+- Checkpoints on every file change. Rewind a whole turn, or revert one file. Undo that actually works.
+- Task plans with a checklist up top, `@file` mentions, diff previews before you approve anything, Windows toast pings when it's done.
+- No telemetry, no accounts, no sync. Local SQLite + your OS keychain. That's the whole cloud.
+---
+## Getting it
+Grab the latest build from [Releases](../../releases). Duh.
+> **Windows only for now.** I don't have a Linux machine to test, sorry!!
+---
+## First launch
+You'll get a few provider presets and zero enabled models, because I'm not going to guess what you pay for. Open Settings, drop an API key on a provider (or point Ollama at your machine), flip on some models, add a project folder. Done. That's the whole setup.
 
-## Running it
+---
+## How to use this thing
+Honestly most of it is self-explanatory, but here's the stuff that isn't obvious.
 
-Grab the installer from Releases, or build from source:
+### The composer
+- `@` attaches files. Type `@` and start typing a name, pick it, the file goes along with your message.
+- `/` does quick actions: `/plan` (make it plan first), `/auto` and `/manual` (approval mode), `/model`, `/new`.
 
-```
-cd src-tauri
+### Permissions
+In Settings, split three ways:
+- **Project**: file writes and shell commands, ask or allow separately.
+- **External**: anything outside the project. Asks *every* time by default, even in Auto mode. You can also block it entirely.
+- **Workshop**: full access by default. It's a scratch pad, who cares.
+
+### Rewind
+Right-click any of your own messages. "Rewind to here" deletes that message and everything after, puts the text back in the box, and **restores the files** to how they were at that point. The Review panel can also revert single files if you don't want to nuke the whole turn.
+
+---
+## Will it run on my grandma's life support?
+The app itself is tiny. Rust + Tauri, system webview, one SQLite file. It'll be fine.
+
+If you're running local models, that's on you and your VRAM. A 4b model on CPU is usable-ish, a 9b wants a GPU. Cloud models need nothing but internet and money.
+
+---
+## Building it yourself
+If you're into that:
+- [Rust](https://rustup.rs/) (latest stable)
+```bash
+git clone https://github.com/Izcahuatl/supergravity.git
+cd supergravity/src-tauri
 cargo tauri build
 ```
+The exe lands in `target/release/`, installers in `target/release/bundle/`.
 
-You'll need Rust and Tauri's platform prerequisites. Windows is the only tested
-target right now.
+---
+## Waaaahh it broke
+**"No enabled models"**
+- That's not a bug, that's the default. Settings, enable some models.
 
-## Using it
+**The model emits garbage tool calls or fused JSON**
+- That's not me, that's a weak model. It recovers by itself usually. If a whole conversation is stuck, rewind to before it went wrong.
 
-1. Open Settings, pick a provider, paste your API key (stored in the OS keychain).
-2. Enable the models you want in the picker.
-3. Add a project folder.
-4. Start typing. The conversation is created on your first message.
+**Nothing happens when I send**
+- Check the provider actually has a key and the model is enabled. Cloud free tiers also just... die sometimes.
+- Still nothing? Launch with `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222` and look at the devtools on port 9222 like a caveman.
 
-The composer takes `@` to attach files and `/` for quick actions
-(`/plan`, `/auto`, `/manual`, `/model`, `/new`).
+---
+## Serious License Stuff
+Copyright (C) 2026 Izcahuatl
 
-## What it does differently
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published
+by the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
 
-**Workshop.** Every conversation gets a scratch directory outside your project.
-The agent uses it for python scripts and experiments with full permissions, so
-your project only sees intentional changes.
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
 
-**Checkpoints.** File changes are snapshotted per turn. Right-click any of your
-messages to rewind the conversation and the files to that point, or revert a
-single file from the Review panel.
-
-**Approvals that make sense.** Writes and shell commands ask first in Manual
-mode. External paths (outside the project and Workshop) always ask, even in
-Auto. All of it is tunable in Settings.
-
-**No surprises.** No telemetry, no accounts, no sync. Everything lives in a
-local SQLite database and your OS keychain.
-
-## Stack
-
-- Rust core: agent loop, tools, providers, SQLite store
-- Tauri v2 bridge and shell
-- Vanilla JS/CSS UI, no framework, no build step
-
-## Status
-
-Early. Windows only, tested against a handful of models. If something breaks,
-launch with `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222`
-and poke at the devtools on port 9222.
+You should have received a copy of the GNU Affero General Public License
+along with this program. It can also be found at <https://www.gnu.org/licenses/>.
