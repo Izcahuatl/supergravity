@@ -1,7 +1,5 @@
 # Supergravity
-**Agentic coding app that doesn't care whose model you use!!**
-
-Supergravity is like Google Antigravity, except it's not married to one vendor. OpenAI, Anthropic, Gemini, your local Ollama stuff, or whatever random OpenAI-compatible endpoint you found. Point it at a project folder and the agent reads, writes, edits, searches, and runs commands in it.
+Supergravity is sorta like Google Antigravity, except it's not stuck to JUST Gemini/Claude. OpenAI, Anthropic, Gemini, your local Ollama stuff, or whatever random OpenAI-compatible endpoint you found.
 
 ---
 ## Features?
