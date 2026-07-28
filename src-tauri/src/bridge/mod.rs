@@ -25,6 +25,13 @@ pub fn run() {
 
     let dir = data_dir().expect("cannot determine app data dir");
     std::fs::create_dir_all(&dir).expect("cannot create app data dir");
+    // WebView2's default user-data folder sits next to the exe - writable in
+    // dev, but NOT under Program Files (MSI). Point it at the app data dir so
+    // installed builds can start a webview at all.
+    #[cfg(windows)]
+    if std::env::var_os("WEBVIEW2_USER_DATA_FOLDER").is_none() {
+        std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", dir.join("webview2"));
+    }
     let store = Store::open(&dir.join("supergravity.db")).expect("cannot open store");
     let config_path = dir.join("config.toml");
     let ui_config = AppConfig::load(&config_path).unwrap_or_default();
