@@ -3,11 +3,10 @@ Supergravity is sorta like Google Antigravity, except it's not stuck to JUST Gem
 
 ---
 ## Features?
-- Use any model. Switch mid-conversation if you want, the chat remembers which model answered what.
-- Approvals per action type. Writes and shell commands ask first, or don't. Your call.
-- Every chat gets a **Workshop**: its own scratch folder for python and experiments, full perms, zero cleanup duty for you.
-- Checkpoints on every file change. Rewind a whole turn, or revert one file. Undo that actually works.
-- Task plans with a checklist up top, `@file` mentions, diff previews before you approve anything, Windows toast pings when it's done.
+- Use (almost) any model. What else?
+- Every chat gets a Workshop, a scratch folder for python and experiments
+- Checkpoints on every file change
+- Task plans with a checklist up top, `@file` mentions, diff previews
 ---
 ## Getting it
 Grab the latest build from [Releases](../../releases). Duh.
